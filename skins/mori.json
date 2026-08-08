@@ -1,0 +1,46 @@
+{
+  "id": "mori",
+  "name": "森系",
+  "stamp": "林间",
+  "desc": "森林绿意 · 方形素纸（无线）",
+  "preset": true,
+  "colors": {
+    "ink": "#334038",
+    "inkSoft": "#66736a",
+    "paper": "#f4f7f2",
+    "sage": "#6f8f6a",
+    "sageDeep": "#4d6b49",
+    "blush": "#a7b98a",
+    "sky": "#8aaa84",
+    "lemon": "#cbbf8a"
+  },
+  "deskWash": "radial-gradient(800px 420px at 8% 0%, rgba(111, 143, 106, 0.32), transparent 60%), radial-gradient(700px 380px at 92% 10%, rgba(167, 185, 138, 0.28), transparent 55%), linear-gradient(165deg, #e7efe4 0%, #eef3eb 45%, #e2ebe0 100%)",
+  "paper": {
+    "size": "square",
+    "minHeight": "58vh",
+    "radius": "20px",
+    "lines": {
+      "enabled": false,
+      "style": "none",
+      "gap": "1.7rem",
+      "color": "rgba(111, 143, 106, 0.18)",
+      "offsetTop": "2.4rem"
+    },
+    "marginLine": {
+      "enabled": false,
+      "left": "1.8rem",
+      "color": "rgba(167, 185, 138, 0.4)"
+    }
+  },
+  "layout": {
+    "sidebarWidth": "15rem",
+    "notebookMaxWidth": "1100px",
+    "showSpiral": true,
+    "showTape": true,
+    "showPetals": true
+  },
+  "stickers": [
+    { "emoji": "🍄", "top": "12%", "left": "2%", "rotate": "-12", "size": "1.4rem" },
+    { "emoji": "🦌", "bottom": "11%", "right": "3%", "rotate": "6", "size": "1.45rem" }
+  ]
+}

@@ -1,0 +1,46 @@
+{
+  "id": "example-user-skin",
+  "name": "示例自订",
+  "stamp": "自订",
+  "desc": "示范：自定义纸张尺寸、横线、贴纸",
+  "preset": false,
+  "colors": {
+    "ink": "#40383d",
+    "inkSoft": "#74666e",
+    "paper": "#fff8fb",
+    "sage": "#c48bb0",
+    "sageDeep": "#9a5f86",
+    "blush": "#e7b0cf",
+    "sky": "#d9b8d0",
+    "lemon": "#f0d4e4"
+  },
+  "deskWash": "radial-gradient(800px 420px at 12% 0%, rgba(231, 176, 207, 0.4), transparent 60%), radial-gradient(700px 380px at 90% 12%, rgba(240, 212, 228, 0.35), transparent 55%), linear-gradient(165deg, #f9eef4 0%, #fbf5f8 45%, #f3e8ef 100%)",
+  "paper": {
+    "size": "a5",
+    "minHeight": "65vh",
+    "radius": "22px",
+    "lines": {
+      "enabled": true,
+      "style": "dashed",
+      "gap": "1.6rem",
+      "color": "rgba(196, 139, 176, 0.3)",
+      "offsetTop": "2.5rem"
+    },
+    "marginLine": {
+      "enabled": true,
+      "left": "2.2rem",
+      "color": "rgba(231, 176, 207, 0.55)"
+    }
+  },
+  "layout": {
+    "sidebarWidth": "15rem",
+    "notebookMaxWidth": "1140px",
+    "showSpiral": true,
+    "showTape": true,
+    "showPetals": true
+  },
+  "stickers": [
+    { "emoji": "🎀", "top": "8%", "right": "3%", "rotate": "14", "size": "1.45rem" },
+    { "emoji": "★", "bottom": "13%", "left": "3%", "rotate": "-16", "size": "1.2rem" }
+  ]
+}

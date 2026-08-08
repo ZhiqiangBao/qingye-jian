@@ -1,0 +1,294 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>青叶笺 · 学习计划</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Gaegu:wght@400;700&family=Liu+Jian+Mao+Cao&family=Long+Cang&family=Ma+Shan+Zheng&family=Noto+Sans+SC:wght@400;500;700&family=ZCOOL+XiaoWei&family=Zhi+Mang+Xing&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="styles.css" />
+  <script defer src="marked.min.js"></script>
+  <script defer src="app.js"></script>
+</head>
+<body data-theme="qingye">
+  <div class="desk" aria-hidden="true">
+    <div class="desk-wash"></div>
+    <div class="desk-dots"></div>
+    <div class="petal p1"></div>
+    <div class="petal p2"></div>
+    <div class="petal p3"></div>
+  </div>
+
+  <div class="notebook">
+    <div class="spiral" aria-hidden="true">
+      <span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span>
+    </div>
+    <div class="skin-decor-layer" id="skinDecorLayer" aria-hidden="true"></div>
+
+    <header class="topbar">
+      <div class="brand">
+        <div class="brand-stamp" id="brandStamp">今日</div>
+        <div class="brand-text">
+          <h1 class="brand-mark" id="brandMark">青叶笺</h1>
+          <p class="brand-sub">换皮肤 · 贴贴纸 · 模板新建 · 点「帮助」看编辑技巧</p>
+        </div>
+      </div>
+
+      <div class="progress-wrap" title="勾选进度">
+        <div class="progress-meta">
+          <span>完成进度</span>
+          <span><span id="progressLabel">0 / 0</span> · <span id="progressPct">0%</span></span>
+        </div>
+        <div class="progress-track">
+          <div class="progress-fill" id="progressFill"></div>
+        </div>
+      </div>
+
+      <div class="actions">
+        <button type="button" class="btn soft" id="btnHelp" title="打开编辑技巧帮助">帮助</button>
+        <button type="button" class="btn soft" id="btnQuitApp" title="退出本地程序（关闭后台服务）">退出</button>
+        <button type="button" class="btn soft" id="btnWorkspace" title="点选或浏览选择工作区文件夹">工作区</button>
+        <button type="button" class="btn soft" id="btnThemes" title="切换手账皮肤（纸张/横线/贴纸）">换皮肤</button>
+        <button type="button" class="btn soft" id="btnImportSkin" title="导入自定义皮肤 JSON">导入皮肤</button>
+        <button type="button" class="btn soft" id="btnStickers" title="开关贴纸、添加可写内容的贴纸">贴纸</button>
+        <button type="button" class="btn soft" id="btnFonts" title="切换手写 / 印刷字体">字体</button>
+        <button type="button" class="btn soft" id="btnExportPrint" title="按成品纸面导出打印 / 另存 PDF">导出打印</button>
+        <button type="button" class="btn soft" id="btnTemplates" title="从 templates 复制一份新计划">导入模板</button>
+        <button type="button" class="btn soft" id="btnReloadList">刷新目录</button>
+        <button type="button" class="btn soft" id="btnReloadFile">重载本页</button>
+        <button type="button" class="btn primary" id="btnSave">贴好保存</button>
+        <div class="seg" role="group" aria-label="视图">
+          <button type="button" class="seg-btn active" data-view="split">摊开</button>
+          <button type="button" class="seg-btn" data-view="edit">草稿</button>
+          <button type="button" class="seg-btn" data-view="preview">阅读</button>
+        </div>
+      </div>
+    </header>
+
+    <section class="theme-rail" id="themeRail" aria-label="手账皮肤">
+      <div class="theme-rail-label">手账皮肤（纸张尺寸作用于预览纸面 · 超出翻页）</div>
+      <div class="theme-chips" id="themeChips"></div>
+    </section>
+
+    <section class="font-rail" id="fontRail" aria-label="笔迹字体">
+      <div class="theme-rail-label">笔迹字体（代替手写）</div>
+      <div class="theme-chips" id="fontChips"></div>
+    </section>
+
+    <section class="sticker-rail" id="stickerRail" aria-label="贴纸工具">
+      <div class="theme-rail-label">贴纸</div>
+      <label class="sticker-toggle">
+        <input type="checkbox" id="chkStickersEnabled" checked />
+        <span>显示贴纸</span>
+      </label>
+      <label class="sticker-toggle">
+        <input type="checkbox" id="chkSkinDecor" checked />
+        <span>皮肤小装饰</span>
+      </label>
+      <button type="button" class="btn soft" id="btnAddSticker">＋ 贴一张</button>
+      <button type="button" class="btn soft" id="btnClearStickers" title="清空本页用户贴纸">清空本页</button>
+      <span class="sticker-hint" id="stickerHint">贴纸贴在成品页 · 随翻页 · 拖动 / 双击 / 翘边撕掉</span>
+    </section>
+
+    <aside class="nowbar" id="nowBar">
+      <div class="washi washi-a" aria-hidden="true"></div>
+      <div class="now-kicker">此刻这一页</div>
+      <div class="now-title" id="nowTitle">还没对上正在进行的时间块</div>
+      <div class="now-time" id="nowTime"></div>
+    </aside>
+
+    <div class="layout">
+      <aside class="files sticker-card" aria-label="工作区 Markdown">
+        <div class="tape tape-green" aria-hidden="true"></div>
+        <div class="files-head">
+          <div class="files-title">文件浏览</div>
+          <div class="files-path" id="folderPath">工作区</div>
+        </div>
+        <ul class="file-list" id="fileList"></ul>
+        <p class="files-hint" id="filesHint">可进入子文件夹，打开任意 .md</p>
+      </aside>
+
+      <main class="workspace view-split" id="workspace">
+        <section class="pane editor-pane paper-pane" aria-label="Markdown 编辑">
+          <div class="tape tape-pink" aria-hidden="true"></div>
+          <label class="pane-label" for="editor">草稿纸</label>
+          <textarea id="editor" spellcheck="false" placeholder="从左边抽出一页，或点「导入模板」…"></textarea>
+        </section>
+        <section class="pane preview-pane" aria-label="预览">
+          <div class="tape tape-sky" aria-hidden="true"></div>
+          <div class="pane-label">成品页 · 纸面尺寸见皮肤 · 超出可翻页 · 点方框打勾</div>
+          <div class="page-stage paper-pane" id="pageStage">
+            <article class="preview markdown-body page-sheet" id="preview"></article>
+            <div class="sticker-layer" id="stickerLayer" aria-hidden="true"></div>
+          </div>
+          <nav class="page-nav" id="pageNav" aria-label="预览翻页">
+            <button type="button" class="btn soft page-nav-btn" id="btnPagePrev" title="上一页">上一页</button>
+            <span class="page-indicator" id="pageIndicator">1 / 1</span>
+            <button type="button" class="btn soft page-nav-btn" id="btnPageNext" title="下一页">下一页</button>
+          </nav>
+        </section>
+      </main>
+    </div>
+
+    <footer class="status">
+      <span id="fileName">还没有抽出一页</span>
+      <span id="saveState">准备好了</span>
+    </footer>
+  </div>
+
+  <dialog class="modal help-modal" id="helpModal">
+    <div class="modal-card help-modal-card">
+      <div class="modal-head">
+        <div>
+          <h2 class="modal-title">编辑技巧</h2>
+          <p class="modal-desc">分页、勾选、贴纸、皮肤与导出等写法都在这里。文档在程序目录 <code>help/</code>。</p>
+        </div>
+        <button type="button" class="btn soft" id="btnHelpClose">关闭</button>
+      </div>
+      <article class="help-body markdown-body" id="helpBody" aria-live="polite">
+        <p class="help-loading">正在打开帮助…</p>
+      </article>
+      <p class="modal-status" id="helpStatus"></p>
+    </div>
+  </dialog>
+
+  <dialog class="modal" id="workspaceModal">
+    <div class="modal-card">
+      <div class="modal-head">
+        <div>
+          <h2 class="modal-title">选择工作区</h2>
+          <p class="modal-desc">工作区内的文件夹和 .md 都能浏览。点常用位置，或打开系统文件夹窗口。</p>
+        </div>
+        <button type="button" class="btn soft" id="btnWorkspaceClose">关闭</button>
+      </div>
+      <p class="workspace-current">当前：<strong id="workspaceCurrentPath">-</strong></p>
+      <div class="workspace-actions">
+        <button type="button" class="btn primary" id="btnWorkspaceBrowse">浏览文件夹…</button>
+        <button type="button" class="btn soft" id="btnWorkspaceRefresh">刷新列表</button>
+      </div>
+      <div class="workspace-grid" id="workspaceGrid"></div>
+      <p class="modal-status" id="workspaceStatus"></p>
+      <p class="modal-foot">也可以继续手动粘贴路径（高级）：</p>
+      <div class="import-row">
+        <label class="import-label" for="workspaceManual">路径</label>
+        <input class="import-input" id="workspaceManual" type="text" placeholder="例如 D:\document" />
+        <button type="button" class="btn soft" id="btnWorkspaceManual">使用此路径</button>
+      </div>
+    </div>
+  </dialog>
+
+  <dialog class="modal" id="templateModal">
+    <div class="modal-card" id="templateForm">
+      <div class="modal-head">
+        <div>
+          <h2 class="modal-title">导入手账模板</h2>
+          <p class="modal-desc">
+            先点选一个模板，再点「导入」。文件会保存到左侧正在浏览的文件夹。
+            模板原件在程序目录 <code>templates</code>。
+          </p>
+        </div>
+        <button type="button" class="btn soft" id="btnTemplateClose">关闭</button>
+      </div>
+      <div class="template-grid" id="templateGrid"></div>
+      <div class="import-row">
+        <label class="import-label" for="importName">保存为</label>
+        <input class="import-input" id="importName" type="text" placeholder="例如：学习计划2026-08-10.md" />
+        <button type="button" class="btn primary" id="btnImportConfirm">导入并打开</button>
+      </div>
+      <p class="modal-status" id="templateStatus"></p>
+      <p class="modal-foot" id="templateHint">把新的 .md 放进 templates 后，点刷新或重新打开此面板即可看到。</p>
+    </div>
+  </dialog>
+
+  <dialog class="modal" id="skinModal">
+    <div class="modal-card">
+      <div class="modal-head">
+        <div>
+          <h2 class="modal-title">导入皮肤</h2>
+          <p class="modal-desc">
+            粘贴皮肤 JSON，或选择 <code>.json</code> 文件。可设计纸张大小、横线、边线、装饰。
+            说明见程序目录 <code>skins/README.txt</code>。
+          </p>
+        </div>
+        <button type="button" class="btn soft" id="btnSkinClose">关闭</button>
+      </div>
+      <div class="import-row">
+        <label class="import-label" for="skinFile">文件</label>
+        <input class="import-input" id="skinFile" type="file" accept="application/json,.json" />
+      </div>
+      <label class="import-label" for="skinJson">皮肤 JSON</label>
+      <textarea class="skin-json" id="skinJson" spellcheck="false" placeholder='{ "id": "my-skin", "name": "我的皮肤", "colors": { "sage": "#7fafa0" }, "paper": { "size": "a5", "lines": { "style": "dashed" } } }'></textarea>
+      <div class="import-row">
+        <label class="import-check"><input type="checkbox" id="skinOverwrite" /> 覆盖同名皮肤</label>
+        <button type="button" class="btn soft" id="btnSkinLoadExample">填入示例</button>
+        <button type="button" class="btn primary" id="btnSkinImport">保存并应用</button>
+      </div>
+      <p class="modal-status" id="skinStatus"></p>
+      <p class="modal-foot">内置预设不会被覆盖；自定义皮肤写入 <code>skins/</code>。</p>
+    </div>
+  </dialog>
+
+  <dialog class="modal" id="exportModal">
+    <div class="modal-card">
+      <div class="modal-head">
+        <div>
+          <h2 class="modal-title">导出成品页</h2>
+          <p class="modal-desc">按当前成品页原样导出（版式、横线、比例一致）。可选择是否带贴纸。</p>
+        </div>
+        <button type="button" class="btn soft" id="btnExportClose">关闭</button>
+      </div>
+      <p class="modal-status" id="exportStatus"></p>
+      <div class="import-row export-actions">
+        <button type="button" class="btn primary" id="btnExportWithStickers">带贴纸导出</button>
+        <button type="button" class="btn soft" id="btnExportPlain">不带贴纸导出</button>
+      </div>
+      <p class="modal-foot">将打开打印页，可「另存为 PDF」或下载 HTML。</p>
+    </div>
+  </dialog>
+
+  <dialog class="modal" id="stickerModal">
+    <div class="modal-card sticker-modal-card">
+      <div class="modal-head">
+        <div>
+          <h2 class="modal-title" id="stickerModalTitle">贴一张贴纸</h2>
+          <p class="modal-desc">选形状、写内容，贴到手账上。可拖动调整位置，带轻微倾斜的粘贴感。</p>
+        </div>
+        <button type="button" class="btn soft" id="btnStickerClose">关闭</button>
+      </div>
+
+      <div class="sticker-form">
+        <div class="sticker-form-main">
+          <label class="import-label" for="stickerText">贴纸文字</label>
+          <textarea class="sticker-text-input" id="stickerText" maxlength="80" placeholder="例如：今天重点 · 别忘了复盘"></textarea>
+
+          <div class="sticker-shape-label">形状</div>
+          <div class="shape-grid" id="shapeGrid" role="listbox" aria-label="贴纸形状"></div>
+
+          <div class="sticker-color-label">底色</div>
+          <div class="color-grid" id="stickerColorGrid"></div>
+
+          <div class="sticker-sliders">
+            <label>倾斜 <input type="range" id="stickerRotate" min="-18" max="18" value="-4" /> <span id="stickerRotateVal">-4°</span></label>
+            <label>大小 <input type="range" id="stickerSize" min="88" max="200" value="128" /> <span id="stickerSizeVal">128</span></label>
+          </div>
+        </div>
+        <div class="sticker-preview-wrap">
+          <div class="sticker-preview-label">预览</div>
+          <div class="sticker-preview-stage">
+            <div class="user-sticker shape-note" id="stickerPreview">
+              <div class="sticker-face"><div class="sticker-text" id="stickerPreviewText">贴纸</div></div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="import-row">
+        <button type="button" class="btn soft" id="btnStickerDelete" hidden>撕掉这张</button>
+        <button type="button" class="btn primary" id="btnStickerSave">贴上去</button>
+      </div>
+      <p class="modal-status" id="stickerModalStatus"></p>
+    </div>
+  </dialog>
+</body>
+</html>

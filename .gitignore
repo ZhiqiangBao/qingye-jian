@@ -1,0 +1,36 @@
+# Private markdown only at the repository root (notes / daily plans)
+/*.md
+
+# Keep the project readme
+!/README.md
+
+# Markdown inside subfolders IS tracked
+# e.g. document/*.md (demo content), templates/*.md, skins stay as json
+
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+.venv/
+venv/
+
+# Local editor / OS noise
+.DS_Store
+Thumbs.db
+desktop.ini
+*.log
+
+# Local workspace path config (machine-specific)
+workspace.json
+
+# Packaging / release artifacts
+dist/
+build/
+release/
+*.spec
+qingye-jian.log
+qingye-journal.log
+packaging/qingye-jian.ico
+packaging/qingye-jian.png
+packaging/qingye-journal.ico
+packaging/qingye-journal.png
