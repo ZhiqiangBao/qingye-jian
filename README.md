@@ -1,8 +1,14 @@
 # 青叶笺
 
-本地手账风格的 Markdown 阅读 / 编辑器。写学习计划、日记或小清单，预览像摊开一页纸笺：横线、皮肤、贴纸、翻页，都能直接导出打印。
+手账风格的 Markdown 编辑器：学习计划、日记、清单都能写成一页纸笺——横线本、皮肤、贴纸、翻页，预览即可导出打印。
 
-GitHub 仓库名：**qingye-jian**
+🌿 **在线 Demo（免安装）：** [https://zhiqiangbao.github.io/qingye-jian/](https://zhiqiangbao.github.io/qingye-jian/)
+
+> 浏览器里直接试用手账皮肤、贴纸、字体、翻页与导出。Demo 将内容保存在本机浏览器，也可下载 `.md`；完整读写文件请用桌面版。
+
+关键词：手账 · Markdown · 学习计划 · 日记 · 贴纸 · 皮肤 · 笔记
+
+仓库：[qingye-jian](https://github.com/ZhiqiangBao/qingye-jian)
 
 ## 功能
 
@@ -15,12 +21,28 @@ GitHub 仓库名：**qingye-jian**
 - 模板导入（`templates/`）
 - 导出打印 / 另存 PDF（可选是否带贴纸）
 - 打包版无黑色终端窗口
+- GitHub Pages 在线 Demo
 
 ## 使用
 
-### 打包版（推荐）
+### 在线 Demo
 
-1. 打开 `release/qingye-jian/`
+打开：[https://zhiqiangbao.github.io/qingye-jian/](https://zhiqiangbao.github.io/qingye-jian/)
+
+适合快速体验手账界面。更新 Demo 资源时：
+
+```bash
+python packaging/sync_pages_demo.py
+git add docs/
+git commit -m "Update Pages demo"
+git push
+```
+
+推送到 `master` 后由 `.github/workflows/pages.yml` 自动部署。
+
+### 打包版（完整功能）
+
+1. 打开 `release/qingye-jian/`（或 Release 压缩包）
 2. 双击 **青叶笺.exe**
 3. 浏览器会自动打开；默认进入 `document/` 内容库
 4. 用完点顶部「退出」，关闭后台服务
@@ -32,25 +54,6 @@ python server.py --open
 ```
 
 浏览器访问 `http://127.0.0.1:8765/`。不要直接双击打开 `index.html`。
-
-### GitHub Pages 在线 Demo
-
-仓库已带静态 Demo（无 Python 后端）：可试皮肤、贴纸、翻页、模板、导出；保存写入浏览器本地并可下载 `.md`。
-
-1. 仓库 **Settings → Pages**
-2. Source 选 **GitHub Actions**
-3. 推送 `master`/`main` 后自动部署（工作流：`.github/workflows/pages.yml`）
-4. 打开：`https://zhiqiangbao.github.io/qingye-jian/`
-
-本地预览 Demo：
-
-```bash
-python packaging/sync_pages_demo.py
-# 再用任意静态服务器打开 docs/，例如：
-python -m http.server 8080 --directory docs
-```
-
-也可在 Settings → Pages 里改用 **Deploy from a branch**，文件夹选 `/docs`（需先运行上面的 sync 并提交 `docs/`）。
 
 ## 帮助
 
@@ -73,7 +76,7 @@ qingye-jian/
   skins/                手账皮肤
   document/             默认工作区（示例内容）
   packaging/            图标与打包脚本
-  docs/                 GitHub Pages 静态 Demo（可由脚本生成）
+  docs/                 GitHub Pages 静态 Demo
   release/qingye-jian/  打包成品（本地生成）
 ```
 
