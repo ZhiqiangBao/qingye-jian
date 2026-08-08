@@ -1,0 +1,47 @@
+{
+  "id": "taohua",
+  "name": "桃桃",
+  "stamp": "便签",
+  "desc": "浅桃便签 · 圆角点点纸",
+  "preset": true,
+  "colors": {
+    "ink": "#4a3d42",
+    "inkSoft": "#7a6d72",
+    "paper": "#fff7f8",
+    "sage": "#d59aa6",
+    "sageDeep": "#b87584",
+    "blush": "#efb6c0",
+    "sky": "#e8c4cc",
+    "lemon": "#f0d6c8"
+  },
+  "deskWash": "radial-gradient(800px 420px at 12% 0%, rgba(239, 182, 192, 0.4), transparent 60%), radial-gradient(700px 380px at 88% 12%, rgba(240, 214, 200, 0.35), transparent 55%), linear-gradient(165deg, #f8eef1 0%, #faf4f5 45%, #f3e8ea 100%)",
+  "paper": {
+    "size": "a5",
+    "minHeight": "66vh",
+    "radius": "24px",
+    "lines": {
+      "enabled": true,
+      "style": "dotted",
+      "gap": "1.55rem",
+      "color": "rgba(213, 154, 166, 0.35)",
+      "offsetTop": "2.5rem"
+    },
+    "marginLine": {
+      "enabled": true,
+      "left": "2rem",
+      "color": "rgba(239, 182, 192, 0.55)"
+    }
+  },
+  "layout": {
+    "sidebarWidth": "15rem",
+    "notebookMaxWidth": "1120px",
+    "showSpiral": true,
+    "showTape": true,
+    "showPetals": true
+  },
+  "stickers": [
+    { "emoji": "🌸", "top": "6%", "right": "3%", "rotate": "16", "size": "1.55rem" },
+    { "emoji": "♡", "top": "20%", "left": "2%", "rotate": "-10", "size": "1.25rem" },
+    { "emoji": "🍡", "bottom": "14%", "left": "4%", "rotate": "8", "size": "1.3rem" }
+  ]
+}

@@ -1,0 +1,45 @@
+{
+  "id": "yueliang",
+  "name": "月光",
+  "stamp": "信纸",
+  "desc": "月光信纸 · A4 细横线",
+  "preset": true,
+  "colors": {
+    "ink": "#3a4058",
+    "inkSoft": "#6d7388",
+    "paper": "#f7f8fc",
+    "sage": "#8e98b5",
+    "sageDeep": "#5f6a8a",
+    "blush": "#b7b3c9",
+    "sky": "#c5cbe0",
+    "lemon": "#e4e7f2"
+  },
+  "deskWash": "radial-gradient(800px 420px at 10% 0%, rgba(197, 203, 224, 0.45), transparent 60%), radial-gradient(700px 380px at 90% 8%, rgba(228, 231, 242, 0.5), transparent 55%), linear-gradient(165deg, #eef0f7 0%, #f4f5fa 45%, #e8ebf3 100%)",
+  "paper": {
+    "size": "a4",
+    "minHeight": "72vh",
+    "radius": "12px",
+    "lines": {
+      "enabled": true,
+      "style": "solid",
+      "gap": "1.5rem",
+      "color": "rgba(142, 152, 181, 0.22)",
+      "offsetTop": "2.8rem"
+    },
+    "marginLine": {
+      "enabled": true,
+      "left": "2.6rem",
+      "color": "rgba(183, 179, 201, 0.55)"
+    }
+  },
+  "layout": {
+    "sidebarWidth": "16rem",
+    "notebookMaxWidth": "1320px",
+    "showSpiral": false,
+    "showTape": false,
+    "showPetals": false
+  },
+  "stickers": [
+    { "emoji": "🌙", "top": "9%", "right": "4%", "rotate": "-8", "size": "1.4rem" }
+  ]
+}

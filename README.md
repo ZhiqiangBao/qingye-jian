@@ -33,6 +33,25 @@ python server.py --open
 
 浏览器访问 `http://127.0.0.1:8765/`。不要直接双击打开 `index.html`。
 
+### GitHub Pages 在线 Demo
+
+仓库已带静态 Demo（无 Python 后端）：可试皮肤、贴纸、翻页、模板、导出；保存写入浏览器本地并可下载 `.md`。
+
+1. 仓库 **Settings → Pages**
+2. Source 选 **GitHub Actions**
+3. 推送 `master`/`main` 后自动部署（工作流：`.github/workflows/pages.yml`）
+4. 打开：`https://zhiqiangbao.github.io/qingye-jian/`
+
+本地预览 Demo：
+
+```bash
+python packaging/sync_pages_demo.py
+# 再用任意静态服务器打开 docs/，例如：
+python -m http.server 8080 --directory docs
+```
+
+也可在 Settings → Pages 里改用 **Deploy from a branch**，文件夹选 `/docs`（需先运行上面的 sync 并提交 `docs/`）。
+
 ## 帮助
 
 编辑技巧见 `help/编辑技巧.md`，或启动后点顶部「帮助」。
@@ -54,6 +73,7 @@ qingye-jian/
   skins/                手账皮肤
   document/             默认工作区（示例内容）
   packaging/            图标与打包脚本
+  docs/                 GitHub Pages 静态 Demo（可由脚本生成）
   release/qingye-jian/  打包成品（本地生成）
 ```
 

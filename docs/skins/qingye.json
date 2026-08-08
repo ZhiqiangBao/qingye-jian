@@ -1,0 +1,49 @@
+{
+  "id": "qingye",
+  "name": "青叶",
+  "stamp": "今日",
+  "desc": "叶绿小清新 · A5 横线本 + 花瓣贴纸",
+  "preset": true,
+  "colors": {
+    "ink": "#3d4a45",
+    "inkSoft": "#6d7a74",
+    "paper": "#f8faf7",
+    "sage": "#7fafa0",
+    "sageDeep": "#5a8f7f",
+    "blush": "#e7a8b2",
+    "sky": "#8eb8c9",
+    "lemon": "#e6d39a"
+  },
+  "deskWash": "radial-gradient(800px 420px at 8% 0%, rgba(142, 184, 201, 0.35), transparent 60%), radial-gradient(700px 380px at 92% 8%, rgba(231, 168, 178, 0.28), transparent 55%), radial-gradient(600px 360px at 50% 100%, rgba(127, 175, 160, 0.25), transparent 60%), linear-gradient(165deg, #e7f2ec 0%, #eef4f1 40%, #e4ebe6 100%)",
+  "paper": {
+    "size": "a5",
+    "minHeight": "68vh",
+    "radius": "18px",
+    "shadow": "0 12px 30px rgba(70, 95, 85, 0.12)",
+    "lines": {
+      "enabled": true,
+      "style": "solid",
+      "gap": "1.7rem",
+      "color": "rgba(120, 150, 140, 0.22)",
+      "offsetTop": "2.6rem"
+    },
+    "marginLine": {
+      "enabled": true,
+      "left": "2.1rem",
+      "color": "rgba(231, 168, 178, 0.45)"
+    }
+  },
+  "layout": {
+    "sidebarWidth": "15.2rem",
+    "notebookMaxWidth": "1180px",
+    "showSpiral": true,
+    "showTape": true,
+    "showPetals": true,
+    "contentGap": "0.9rem"
+  },
+  "stickers": [
+    { "emoji": "🌿", "top": "7%", "right": "3%", "rotate": "12", "size": "1.5rem" },
+    { "emoji": "✿", "top": "18%", "left": "2%", "rotate": "-18", "size": "1.2rem" },
+    { "emoji": "🍃", "bottom": "12%", "right": "5%", "rotate": "8", "size": "1.35rem" }
+  ]
+}

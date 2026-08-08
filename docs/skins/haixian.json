@@ -1,0 +1,46 @@
+{
+  "id": "haixian",
+  "name": "海盐",
+  "stamp": "潮汐",
+  "desc": "浅海盐蓝 · 宽页虚线本",
+  "preset": true,
+  "colors": {
+    "ink": "#3d4a45",
+    "inkSoft": "#6d7a74",
+    "paper": "#f5f9fa",
+    "sage": "#7aa8b8",
+    "sageDeep": "#4f7f90",
+    "blush": "#9bb8c8",
+    "sky": "#b7d0da",
+    "lemon": "#d5e2e8"
+  },
+  "deskWash": "radial-gradient(800px 420px at 8% 0%, rgba(122, 168, 184, 0.35), transparent 60%), radial-gradient(700px 380px at 92% 8%, rgba(180, 205, 215, 0.3), transparent 55%), linear-gradient(165deg, #e8f1f4 0%, #eef4f6 45%, #e4ecef 100%)",
+  "paper": {
+    "size": "wide",
+    "minHeight": "64vh",
+    "radius": "20px",
+    "lines": {
+      "enabled": true,
+      "style": "dashed",
+      "gap": "1.85rem",
+      "color": "rgba(122, 168, 184, 0.28)",
+      "offsetTop": "2.4rem"
+    },
+    "marginLine": {
+      "enabled": true,
+      "left": "2.4rem",
+      "color": "rgba(122, 168, 184, 0.4)"
+    }
+  },
+  "layout": {
+    "sidebarWidth": "14.5rem",
+    "notebookMaxWidth": "1280px",
+    "showSpiral": true,
+    "showTape": true,
+    "showPetals": false
+  },
+  "stickers": [
+    { "emoji": "🌊", "top": "10%", "right": "4%", "rotate": "-6", "size": "1.45rem" },
+    { "emoji": "✦", "bottom": "16%", "left": "3%", "rotate": "20", "size": "1.1rem" }
+  ]
+}
