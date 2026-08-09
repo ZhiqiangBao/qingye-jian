@@ -215,6 +215,133 @@ class JsApi:
                 pass
         return True
 
+    # ---------- 导出 / 下载 桥 ----------
+    # WebView2 默认不处理 <a download>.click() 下载，也不支持 File System Access API
+    # (window.showSaveFilePicker)，更不会响应 window.open 打开新标签页。
+    # app.js 在桌面模式下直接调用以下方法，不依赖浏览器 API polyfill：
+    #   1. save_pdf_vector(html, filename) → 无头矢量生成 PDF + 原生保存对话框
+    #   2. save_blob(b64_data, filename) → 解码 base64 + 原生保存对话框（位图 PDF / 其他文件）
+    #   3. open_html_in_browser(b64_html) → 写临时 HTML 到服务目录，用系统浏览器打开
+    def log_line(self, msg: str) -> bool:
+        """让 JS 端往日志文件里写一行，方便诊断。"""
+        try:
+            qy.log_line(str(msg))
+        except Exception:
+            pass
+        return True
+
+    def _save_dialog(self, suggested_name: str) -> str:
+        """弹原生保存对话框，返回用户选择的完整路径；取消返回空字符串。"""
+        if _DOTNET_PICKER:
+            return self._save_dialog_dotnet(suggested_name) or ""
+        return self._save_dialog_tk(suggested_name) or ""
+
+    def _save_dialog_dotnet(self, suggested_name: str) -> str | None:
+        box: dict = {"path": None}
+
+        def _run() -> None:
+            try:
+                from System.Windows.Forms import SaveFileDialog, DialogResult  # noqa: E402
+                dlg = SaveFileDialog()
+                dlg.FileName = suggested_name
+                ext = Path(suggested_name).suffix.lstrip(".")
+                if ext:
+                    dlg.Filter = f"{ext.upper()} 文件 (*.{ext})|*.{ext}|所有文件 (*.*)|*.*"
+                else:
+                    dlg.Filter = "所有文件 (*.*)|*.*"
+                if dlg.ShowDialog() == DialogResult.OK:
+                    box["path"] = str(dlg.FileName)
+            except Exception:
+                box["path"] = None
+
+        t = _NetThread(ThreadStart(_run))
+        t.SetApartmentState(ApartmentState.STA)
+        t.Start()
+        t.Join()
+        return box["path"]
+
+    def _save_dialog_tk(self, suggested_name: str) -> str | None:
+        try:
+            import tkinter as tk
+            from tkinter import filedialog
+            root = tk.Tk()
+            root.withdraw()
+            path = filedialog.asksaveasfilename(
+                initialfile=suggested_name,
+                defaultextension=Path(suggested_name).suffix or ".pdf",
+            )
+            root.destroy()
+            return path or None
+        except Exception:
+            return None
+
+    def save_pdf_vector(self, html: str, filename: str) -> str:
+        """矢量 PDF：调 server 无头打印生成 PDF → 原生保存对话框 → 写文件。
+        返回: 成功=保存路径, 取消="", 失败="ERROR: ..."。"""
+        import base64, uuid
+        try:
+            qy.log_line(f"save_pdf_vector: html len={len(html)}, filename={filename}")
+            pdf_bytes = qy.render_html_to_pdf(html)
+            qy.log_line(f"save_pdf_vector: PDF generated, {len(pdf_bytes)} bytes")
+            path = self._save_dialog(filename)
+            if not path:
+                qy.log_line("save_pdf_vector: user cancelled save dialog")
+                return ""
+            with open(path, "wb") as f:
+                f.write(pdf_bytes)
+            qy.log_line(f"save_pdf_vector: saved to {path}")
+            return path
+        except Exception as e:
+            qy.log_line(f"save_pdf_vector err: {e}")
+            return f"ERROR: {e}"
+
+    def save_blob(self, b64_data: str, filename: str) -> str:
+        """位图 PDF / 任意文件：解码 base64 → 原生保存对话框 → 写文件。
+        返回: 成功=保存路径, 取消="", 失败="ERROR: ..."。"""
+        import base64
+        try:
+            data = base64.b64decode(b64_data)
+            qy.log_line(f"save_blob: {len(data)} bytes, filename={filename}")
+            path = self._save_dialog(filename)
+            if not path:
+                qy.log_line("save_blob: user cancelled save dialog")
+                return ""
+            with open(path, "wb") as f:
+                f.write(data)
+            qy.log_line(f"save_blob: saved to {path}")
+            return path
+        except Exception as e:
+            qy.log_line(f"save_blob err: {e}")
+            return f"ERROR: {e}"
+
+    def open_html_in_browser(self, b64_html: str) -> str:
+        """导出页：解码 HTML → 写到服务目录 → 用系统默认浏览器打开。
+        系统浏览器支持 window.print() 和 <a download>，完美适配打印和下载。
+        返回: 成功=打开的 URL, 失败="ERROR: ..."。"""
+        import base64, uuid, webbrowser
+        try:
+            html = base64.b64decode(b64_html).decode("utf-8")
+            qy.log_line(f"open_html_in_browser: html len={len(html)}")
+            token = uuid.uuid4().hex[:12]
+            html_name = f"__export_preview_{token}.html"
+            html_path = qy.APP_ROOT / html_name
+            html_path.write_text(html, encoding="utf-8")
+            url = f"http://{HOST}:{qy.PORT}/{html_name}"
+            qy.log_line(f"open_html_in_browser: opening {url}")
+            webbrowser.open(url)
+            # 5 分钟后清理临时文件（给用户足够时间打印/下载）
+            def _cleanup():
+                time.sleep(300)
+                try:
+                    html_path.unlink(missing_ok=True)
+                except Exception:
+                    pass
+            threading.Thread(target=_cleanup, daemon=True).start()
+            return url
+        except Exception as e:
+            qy.log_line(f"open_html_in_browser err: {e}")
+            return f"ERROR: {e}"
+
 
 # 无边框窗口注入：自定义标题栏 + 拖动区域标记 + Ctrl+滚轮缩放 + window.close 转发
 _FRAMELESS_JS = r"""(function(){
@@ -314,6 +441,8 @@ document.addEventListener('wheel',function(e){
  e.preventDefault();
  doResize(e);
 },{passive:false});
+
+// ---- 导出 / 下载：app.js 在桌面模式下直接调 pywebview.api，无需 polyfill ----
 })();"""
 
 
@@ -577,8 +706,9 @@ def main() -> None:
     def _on_loaded() -> None:
         try:
             window.evaluate_js(_FRAMELESS_JS)
-        except Exception:
-            pass
+            qy.log_line("frameless JS injected")
+        except Exception as e:
+            qy.log_line(f"frameless JS inject err: {e}")
 
     def _on_closing() -> None:
         """用户点窗口右上角×：先置 STOP_EVENT，再由 closed 做详细清理。
@@ -594,7 +724,8 @@ def main() -> None:
     window.events.closed += _on_closed
 
     # webview.start() 占用主线程直到所有窗口关闭
-    webview.start()
+    # debug=True 开启 DevTools（F12），方便诊断导出问题
+    webview.start(debug=True)
 
     # 保险：窗口关闭后再次确保清理
     _shutdown_cleanup(httpd, api)

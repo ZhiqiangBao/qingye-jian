@@ -190,6 +190,35 @@
   let demoFiles = {};
   let demoTemplateCache = null;
 
+  /** Desktop mode (pywebview / Edge WebView2)：浏览器 API 不可用，改走 Python 桥 */
+  let IS_PYWEBVIEW = false;
+  function _checkPywebview() {
+    try {
+      IS_PYWEBVIEW = typeof window.pywebview !== "undefined" && !!window.pywebview && !!window.pywebview.api;
+    } catch (_) {
+      IS_PYWEBVIEW = false;
+    }
+    return IS_PYWEBVIEW;
+  }
+  _checkPywebview();
+  window.addEventListener("pywebviewready", _checkPywebview);
+  setTimeout(_checkPywebview, 300);
+  setTimeout(_checkPywebview, 1500);
+
+  /** Blob → base64（不含 data: 前缀） */
+  function blobToB64(blob) {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onloadend = () => {
+        const r = reader.result || "";
+        const i = r.indexOf(",");
+        resolve(i >= 0 ? r.substring(i + 1) : r);
+      };
+      reader.onerror = reject;
+      reader.readAsDataURL(blob);
+    });
+  }
+
   function assetUrl(path) {
     const base = document.documentElement.dataset.assetBase || "./";
     const clean = String(path || "").replace(/^\.\//, "");
@@ -1722,7 +1751,8 @@
       const pageHmm = doc.pageHmm;
 
       // Ask for save path immediately (user-gesture window) before long render.
-      if (window.showSaveFilePicker) {
+      // 桌面模式（pywebview）跳过 showSaveFilePicker，改由 Python 端弹保存对话框
+      if (!IS_PYWEBVIEW && window.showSaveFilePicker) {
         try {
           fileHandle = await window.showSaveFilePicker({
             suggestedName: filename,
@@ -1746,6 +1776,25 @@
       if (quality.id === "vector") {
         if (demoMode) {
           throw new Error("网页 Demo 不支持矢量导出，请改用「高清位图」或本地程序");
+        }
+        if (IS_PYWEBVIEW) {
+          // 桌面模式：直接调 Python 生成矢量 PDF + 弹保存对话框
+          setExportStatus("正在无头矢量打印…");
+          setStatus("正在无头矢量打印…");
+          const result = await window.pywebview.api.save_pdf_vector(doc.html, filename);
+          if (result && result.startsWith("ERROR:")) {
+            throw new Error(result.substring(6).trim());
+          }
+          if (!result) {
+            setExportStatus("已取消保存");
+            setStatus("已取消 PDF 保存");
+            return;
+          }
+          const msg = `已保存矢量 PDF · ${Math.max(1, pageHtmls.length)} 页 · ${doc.stageW}×${doc.stageH}px（约 ${doc.pageWmm}×${doc.pageHmm}mm）`;
+          setExportStatus(msg);
+          setStatus(msg);
+          closeExportModal();
+          return;
         }
         const caps = await probeVectorPdfSupport();
         if (!caps.vector) {
@@ -1816,7 +1865,19 @@
       }
 
       const blob = pdf.output("blob");
-      if (fileHandle) {
+      if (IS_PYWEBVIEW) {
+        // 桌面模式：转 base64 调 Python 保存
+        const b64 = await blobToB64(blob);
+        const result = await window.pywebview.api.save_blob(b64, filename);
+        if (result && result.startsWith("ERROR:")) {
+          throw new Error(result.substring(6).trim());
+        }
+        if (!result) {
+          setExportStatus("已取消保存");
+          setStatus("已取消 PDF 保存");
+          return;
+        }
+      } else if (fileHandle) {
         const writable = await fileHandle.createWritable();
         await writable.write(blob);
         await writable.close();
@@ -1849,7 +1910,7 @@
     }
   }
 
-  function exportPrintable({ includeStickers = false } = {}) {
+  async function exportPrintable({ includeStickers = false } = {}) {
     try {
       // Ensure latest markdown + live page-stage size are current
       const html = buildPreviewHtml(editor.value);
@@ -1857,9 +1918,27 @@
       paginateHtml(html);
       const doc = buildPrintableDocument({ includeStickers });
       const filename = `${doc.fileBase}-打印.html`;
+
+      if (IS_PYWEBVIEW) {
+        // 桌面模式：转 base64 调 Python，用系统浏览器打开导出页
+        // 系统浏览器支持 window.print() 和 <a download>，完美适配打印和下载
+        setExportStatus("正在打开导出页…");
+        const b64 = await blobToB64(new Blob([doc.html], { type: "text/html;charset=utf-8" }));
+        const result = await window.pywebview.api.open_html_in_browser(b64);
+        if (result && result.startsWith("ERROR:")) {
+          throw new Error(result.substring(6).trim());
+        }
+        setStatus(
+          `已打开导出页（${pageHtmls.length} 页 · ${
+            includeStickers ? "含贴纸" : "不含贴纸"
+          } · 可下载 HTML / 系统打印；PDF 请用主界面「下载 PDF」）`
+        );
+        closeExportModal();
+        return;
+      }
+
       const blob = new Blob([doc.html], { type: "text/html;charset=utf-8" });
       const url = URL.createObjectURL(blob);
-
       // Do NOT use "noopener" in window.open features: it makes the return value null
       // in Chromium, so the old code always thought the popup was blocked.
       const win = window.open(url, "_blank");
