@@ -218,23 +218,23 @@ class JsApi:
     # ---------- 导出 / 下载 桥 ----------
     # WebView2 默认不处理 <a download>.click() 下载，也不支持 File System Access API
     # (window.showSaveFilePicker)，更不会响应 window.open 打开新标签页。
-    # 这里通过 js_api 桥让 Python 端做这些事：
-    #   1. pick_save_path(suggested_name) → 弹原生保存对话框，返回路径或 ""
-    #   2. write_file(path, b64_data) → 把 base64 解码后写入指定路径
-    #   3. open_export_window(title, b64_html) → 创建新 pywebview 窗口加载 HTML
-    # JS 端用 polyfill 把 window.showSaveFilePicker 和 window.open(blob:) 转发过来。
-    def pick_save_path(self, suggested_name: str) -> str:
-        """弹原生保存对话框，返回用户选择的完整路径；取消返回空字符串。"""
+    # app.js 在桌面模式下直接调用以下方法，不依赖浏览器 API polyfill：
+    #   1. save_pdf_vector(html, filename) → 无头矢量生成 PDF + 原生保存对话框
+    #   2. save_blob(b64_data, filename) → 解码 base64 + 原生保存对话框（位图 PDF / 其他文件）
+    #   3. open_html_in_browser(b64_html) → 写临时 HTML 到服务目录，用系统浏览器打开
+    def log_line(self, msg: str) -> bool:
+        """让 JS 端往日志文件里写一行，方便诊断。"""
         try:
-            if _DOTNET_PICKER:
-                return self._save_dialog_dotnet(suggested_name) or ""
-            return self._save_dialog_tk(suggested_name) or ""
-        except Exception as e:
-            try:
-                qy.log_line(f"pick_save_path err: {e}")
-            except Exception:
-                pass
-            return ""
+            qy.log_line(str(msg))
+        except Exception:
+            pass
+        return True
+
+    def _save_dialog(self, suggested_name: str) -> str:
+        """弹原生保存对话框，返回用户选择的完整路径；取消返回空字符串。"""
+        if _DOTNET_PICKER:
+            return self._save_dialog_dotnet(suggested_name) or ""
+        return self._save_dialog_tk(suggested_name) or ""
 
     def _save_dialog_dotnet(self, suggested_name: str) -> str | None:
         box: dict = {"path": None}
@@ -244,7 +244,6 @@ class JsApi:
                 from System.Windows.Forms import SaveFileDialog, DialogResult  # noqa: E402
                 dlg = SaveFileDialog()
                 dlg.FileName = suggested_name
-                # 用文件名里的扩展名构造过滤器
                 ext = Path(suggested_name).suffix.lstrip(".")
                 if ext:
                     dlg.Filter = f"{ext.upper()} 文件 (*.{ext})|*.{ext}|所有文件 (*.*)|*.*"
@@ -276,48 +275,72 @@ class JsApi:
         except Exception:
             return None
 
-    def write_file(self, path: str, b64_data: str) -> bool:
-        """把 base64 数据写入指定路径（覆盖已存在文件）。"""
+    def save_pdf_vector(self, html: str, filename: str) -> str:
+        """矢量 PDF：调 server 无头打印生成 PDF → 原生保存对话框 → 写文件。
+        返回: 成功=保存路径, 取消="", 失败="ERROR: ..."。"""
+        import base64, uuid
+        try:
+            qy.log_line(f"save_pdf_vector: html len={len(html)}, filename={filename}")
+            pdf_bytes = qy.render_html_to_pdf(html)
+            qy.log_line(f"save_pdf_vector: PDF generated, {len(pdf_bytes)} bytes")
+            path = self._save_dialog(filename)
+            if not path:
+                qy.log_line("save_pdf_vector: user cancelled save dialog")
+                return ""
+            with open(path, "wb") as f:
+                f.write(pdf_bytes)
+            qy.log_line(f"save_pdf_vector: saved to {path}")
+            return path
+        except Exception as e:
+            qy.log_line(f"save_pdf_vector err: {e}")
+            return f"ERROR: {e}"
+
+    def save_blob(self, b64_data: str, filename: str) -> str:
+        """位图 PDF / 任意文件：解码 base64 → 原生保存对话框 → 写文件。
+        返回: 成功=保存路径, 取消="", 失败="ERROR: ..."。"""
         import base64
         try:
             data = base64.b64decode(b64_data)
+            qy.log_line(f"save_blob: {len(data)} bytes, filename={filename}")
+            path = self._save_dialog(filename)
+            if not path:
+                qy.log_line("save_blob: user cancelled save dialog")
+                return ""
             with open(path, "wb") as f:
                 f.write(data)
-            return True
+            qy.log_line(f"save_blob: saved to {path}")
+            return path
         except Exception as e:
-            try:
-                qy.log_line(f"write_file err: {e}")
-            except Exception:
-                pass
-            return False
+            qy.log_line(f"save_blob err: {e}")
+            return f"ERROR: {e}"
 
-    def open_export_window(self, title: str, b64_html: str) -> bool:
-        """开一个新的 pywebview 窗口加载导出 HTML（用户可在新窗口里 Ctrl+P 打印）。"""
-        import base64
+    def open_html_in_browser(self, b64_html: str) -> str:
+        """导出页：解码 HTML → 写到服务目录 → 用系统默认浏览器打开。
+        系统浏览器支持 window.print() 和 <a download>，完美适配打印和下载。
+        返回: 成功=打开的 URL, 失败="ERROR: ..."。"""
+        import base64, uuid, webbrowser
         try:
             html = base64.b64decode(b64_html).decode("utf-8")
+            qy.log_line(f"open_html_in_browser: html len={len(html)}")
+            token = uuid.uuid4().hex[:12]
+            html_name = f"__export_preview_{token}.html"
+            html_path = qy.APP_ROOT / html_name
+            html_path.write_text(html, encoding="utf-8")
+            url = f"http://{HOST}:{qy.PORT}/{html_name}"
+            qy.log_line(f"open_html_in_browser: opening {url}")
+            webbrowser.open(url)
+            # 5 分钟后清理临时文件（给用户足够时间打印/下载）
+            def _cleanup():
+                time.sleep(300)
+                try:
+                    html_path.unlink(missing_ok=True)
+                except Exception:
+                    pass
+            threading.Thread(target=_cleanup, daemon=True).start()
+            return url
         except Exception as e:
-            try:
-                qy.log_line(f"open_export_window decode err: {e}")
-            except Exception:
-                pass
-            return False
-        try:
-            webview.create_window(
-                title=title or "青叶笺 · 导出",
-                html=html,
-                width=900,
-                height=1200,
-                min_size=(400, 400),
-                text_select=True,
-            )
-            return True
-        except Exception as e:
-            try:
-                qy.log_line(f"open_export_window err: {e}")
-            except Exception:
-                pass
-            return False
+            qy.log_line(f"open_html_in_browser err: {e}")
+            return f"ERROR: {e}"
 
 
 # 无边框窗口注入：自定义标题栏 + 拖动区域标记 + Ctrl+滚轮缩放 + window.close 转发
@@ -419,122 +442,7 @@ document.addEventListener('wheel',function(e){
  doResize(e);
 },{passive:false});
 
-// ---- 导出 / 下载 桥（WebView2 默认不处理这些）----
-// 1) polyfill window.showSaveFilePicker —— app.js 用它拿 fileHandle，再
-//    fileHandle.createWritable().write(blob).close() 写 PDF。
-// 2) patch window.open —— app.js 用 window.open(blob:URL) 打开导出页，
-//    WebView2 不会弹新标签页；这里 fetch 拿 blob 内容转 base64 调 Python 开新窗口。
-// 3) 兜底：拦截 <a download>.click() 的 blob 下载（triggerBlobDownload 走的路径）。
-function bytesToB64(bytes){
- var b64='';
- var CHUNK=32768;
- for(var i=0;i<bytes.length;i+=CHUNK){
-  var slice=bytes.subarray(i,i+CHUNK);
-  b64+=btoa(String.fromCharCode.apply(null,slice));
- }
- return b64;
-}
-// (1) showSaveFilePicker polyfill
-if(!window.__qySavePickerPatched){
- window.__qySavePickerPatched=true;
- window.showSaveFilePicker=async function(opts){
-  var suggestedName=(opts&&opts.suggestedName)||'download.bin';
-  var path='';
-  try{path=await window.pywebview.api.pick_save_path(suggestedName);}catch(e){path='';}
-  if(!path){
-   var err=new Error('User cancelled');
-   err.name='AbortError';
-   throw err;
-  }
-  return {
-   name:suggestedName,
-   createWritable:async function(){
-    var chunks=[];
-    return {
-     write:async function(data){
-      if(data instanceof Blob){
-       chunks.push(new Uint8Array(await data.arrayBuffer()));
-      }else if(data instanceof ArrayBuffer){
-       chunks.push(new Uint8Array(data));
-      }else if(data instanceof Uint8Array){
-       chunks.push(data);
-      }else if(typeof data==='string'){
-       chunks.push(new Uint8Array(data));
-      }else{
-       chunks.push(new Uint8Array(String(data)));
-      }
-     },
-     close:async function(){
-      var total=0;for(var i=0;i<chunks.length;i++)total+=chunks[i].length;
-      var merged=new Uint8Array(total);var off=0;
-      for(var j=0;j<chunks.length;j++){merged.set(chunks[j],off);off+=chunks[j].length;}
-      var b64=bytesToB64(merged);
-      var ok=false;
-      try{ok=await window.pywebview.api.write_file(path,b64);}catch(e){ok=false;}
-      if(!ok){var e2=new Error('写入文件失败');e2.name='WriteError';throw e2;}
-     }
-    };
-   }
-  };
- };
-}
-// (2) window.open for blob: URLs
-if(!window.__qyOpenPatched){
- window.__qyOpenPatched=true;
- var origOpen=window.open;
- window.open=function(url,target,features){
-  if(url&&typeof url==='string'&&url.indexOf('blob:')===0){
-   // 异步把 blob 内容读出来转 base64，调 Python 开新窗口
-   try{
-    fetch(url).then(function(r){return r.blob();}).then(function(blob){
-     var reader=new FileReader();
-     reader.onloadend=function(){
-      try{
-       var b64=reader.result.split(',')[1];
-       window.pywebview.api.open_export_window('青叶笺 · 导出',b64);
-      }catch(e){}
-     };
-     reader.readAsDataURL(blob);
-    }).catch(function(e){});
-   }catch(e){}
-   // 返回一个假 window 对象，让 app.js 认为弹窗成功
-   return {
-    document:{write:function(){},close:function(){}},
-    close:function(){},
-    focus:function(){},
-    print:function(){alert('请在导出窗口里按 Ctrl+P 打印或另存为 PDF');},
-    onbeforeunload:null,
-    onload:null,
-    closed:false
-   };
-  }
-  return origOpen?origOpen.apply(window,arguments):null;
- };
-}
-// (3) 兜底：拦截 <a download href="blob:..."> 的点击
-if(!window.__qyLinkDLPatched){
- window.__qyLinkDLPatched=true;
- document.addEventListener('click',function(e){
-  try{
-   var a=e.target&&e.target.closest?e.target.closest('a[download]'):null;
-   if(!a)return;
-   var href=a.href||'';
-   if(href.indexOf('blob:')!==0)return;
-   e.preventDefault();
-   e.stopPropagation();
-   var filename=a.download||'download';
-   fetch(href).then(function(r){return r.blob();}).then(async function(blob){
-    var buf=new Uint8Array(await blob.arrayBuffer());
-    var b64=bytesToB64(buf);
-    var path='';
-    try{path=await window.pywebview.api.pick_save_path(filename);}catch(e){path='';}
-    if(path){
-     await window.pywebview.api.write_file(path,b64);
-    }
-   }).catch(function(e){});
-  }catch(e){}
- },true);
-}
+// ---- 导出 / 下载：app.js 在桌面模式下直接调 pywebview.api，无需 polyfill ----
 })();"""
 
 
@@ -798,8 +706,9 @@ def main() -> None:
     def _on_loaded() -> None:
         try:
             window.evaluate_js(_FRAMELESS_JS)
-        except Exception:
-            pass
+            qy.log_line("frameless JS injected")
+        except Exception as e:
+            qy.log_line(f"frameless JS inject err: {e}")
 
     def _on_closing() -> None:
         """用户点窗口右上角×：先置 STOP_EVENT，再由 closed 做详细清理。
@@ -815,7 +724,8 @@ def main() -> None:
     window.events.closed += _on_closed
 
     # webview.start() 占用主线程直到所有窗口关闭
-    webview.start()
+    # debug=True 开启 DevTools（F12），方便诊断导出问题
+    webview.start(debug=True)
 
     # 保险：窗口关闭后再次确保清理
     _shutdown_cleanup(httpd, api)
