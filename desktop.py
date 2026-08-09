@@ -447,6 +447,8 @@ style.textContent=[
 '.qj-tb-btn{width:42px;height:32px;border:none;background:transparent;color:#666;font-size:13px;font-family:system-ui,sans-serif;cursor:pointer;display:flex;align-items:center;justify-content:center;transition:background .15s;color:#555;}',
 '.qj-tb-btn:hover{background:rgba(0,0,0,.12);}',
 '.qj-tb-close:hover{background:#e81123;color:#fff;}',
+/* 顶栏拖动条：仅此区域可拖窗口。勿开 easy_drag，否则全局 mousedown 会抢走成品页勾选 */
+'.qj-drag-strip{position:fixed;top:0;left:0;right:120px;height:28px;z-index:999990;cursor:grab;}',
 '.qj-drag-hint{position:fixed;top:7px;left:50%;transform:translateX(-50%);z-index:999998;font-size:11px;color:rgba(85,85,85,.5);pointer-events:none;user-select:none;white-space:nowrap;}',
 '.topbar{padding-right:132px;box-sizing:border-box;}',
 '::-webkit-scrollbar{width:6px;height:6px;}',
@@ -479,10 +481,14 @@ bar.innerHTML=
 
 function mount(){
  if(!document.body){setTimeout(mount,50);return;}
+ var strip=document.createElement('div');
+ strip.className='qj-drag-strip pywebview-drag-region';
+ strip.title='拖动此处移动窗口';
+ document.body.appendChild(strip);
  document.body.appendChild(bar);
  var hint=document.createElement('div');
  hint.className='qj-drag-hint';
- hint.textContent='拖动空白处移动 · Ctrl+滚轮缩放窗口';
+ hint.textContent='顶部空白条拖动 · Ctrl+滚轮缩放窗口';
  document.body.appendChild(hint);
  markNoDrag();
 }
@@ -505,7 +511,7 @@ window.close=function(){try{window.pywebview.api.close_window();}catch(e){}};
 
 // ---- 给交互元素打 data-no-drag，避免点按钮/输入时触发窗口拖动 ----
 function markNoDrag(){
- var sels='button,input,textarea,a,select,[contenteditable],label,.list-item,.md-check,.modal,.modal-content,.stickers-palette,.progress-wrap,.skin-decor-layer,.editor-area,.md-preview,.file-tree,.toolbar,.petal,.spiral';
+ var sels='button,input,textarea,a,select,[contenteditable],label,.list-item,.task-item,.markdown-body,.preview,#preview,.page-stage,.modal,.modal-content,.stickers-palette,.progress-wrap,.editor-area,.file-tree,.toolbar,.petal,.spiral,.qj-tb-btn';
  try{document.querySelectorAll(sels).forEach(function(el){
   el.setAttribute('data-no-drag','');
  });}catch(e){}
@@ -791,6 +797,8 @@ def main() -> None:
         text_select=True,
         js_api=api,
         frameless=True,
+        # 默认 easy_drag 会在任意 mousedown 上拖窗口，成品页 checkbox 点不到
+        easy_drag=False,
     )
     api._bind(window)
 

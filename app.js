@@ -543,6 +543,7 @@
     const dir = next > currentPage ? "next" : next < currentPage ? "prev" : "";
     currentPage = next;
     preview.innerHTML = pageHtmls[currentPage] || "";
+    stampTaskIndexes(preview);
     updatePageNav();
     highlightCurrentHeading(editor.value);
     renderUserStickers();
@@ -1989,12 +1990,36 @@
     render();
   }
 
+  function checkboxIndexFromEventTarget(target) {
+    if (!target || !preview?.contains(target)) return -1;
+    let el = target;
+    if (el instanceof HTMLInputElement && el.type === "checkbox") {
+      const raw = el.dataset.taskIndex;
+      return raw != null ? Number(raw) : -1;
+    }
+    const item = el.closest?.("li.task-item");
+    if (!item || !preview.contains(item)) return -1;
+    const cb = item.querySelector('input[type="checkbox"]');
+    if (!cb) return -1;
+    const raw = cb.dataset.taskIndex;
+    return raw != null ? Number(raw) : -1;
+  }
+
+  // 成品页打勾：点方框或任务文字行均可（说明文案「点方框」；点行更易点中）
   preview?.addEventListener("click", (e) => {
     const target = e.target;
-    if (!(target instanceof HTMLInputElement) || target.type !== "checkbox") return;
-    const raw = target.dataset.taskIndex;
-    const index = raw != null ? Number(raw) : -1;
-    if (index >= 0) toggleCheckboxAtIndex(index, target.checked);
+    if (target instanceof HTMLInputElement && target.type === "checkbox") {
+      const index = checkboxIndexFromEventTarget(target);
+      if (index >= 0) toggleCheckboxAtIndex(index, target.checked);
+      return;
+    }
+    const item = target instanceof Element ? target.closest("li.task-item") : null;
+    if (!item || !preview.contains(item)) return;
+    const cb = item.querySelector('input[type="checkbox"]');
+    if (!cb) return;
+    e.preventDefault();
+    const index = checkboxIndexFromEventTarget(cb);
+    if (index >= 0) toggleCheckboxAtIndex(index, !cb.checked);
   });
 
   btnPagePrev?.addEventListener("click", () => goPage(-1));
