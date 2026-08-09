@@ -3,10 +3,24 @@
 
 复用同目录下的 server.py 提供 HTTP API 与静态资源，
 用 pywebview（Windows 上为 Edge WebView2）打开原生窗口承载界面。
+
+关闭流程（确保无后台残留）：
+  1. 窗口 closing → STOP_EVENT.set()，阻断后续后台任务
+  2. 窗口 closed → _shutdown_cleanup() 有序清理：
+       - server.shutdown() 结束 HTTP 主循环
+       - server.server_close() 释放监听 socket（避免端口被占用）
+       - 遍历本 Python 进程创建的子进程（Edge 无头打印等），terminate+kill
+       - 置空 window 引用避免回调链引用
+  3. webview.start() 返回后：如果主线程之外仍有线程存活（WebView2 COM
+     线程、pythonnet 终结器线程等），用 os._exit(0) 强退，保证不残留。
 """
 
 from __future__ import annotations
 
+import os
+import signal
+import socket
+import subprocess
 import sys
 import threading
 import time
@@ -23,6 +37,9 @@ import webview  # noqa: E402
 
 HOST = qy.HOST  # "127.0.0.1"
 PORT = qy.PORT  # 8765（首选端口，被占用时自动递增）
+
+# 全局停止信号：窗口关闭即置位，所有后台任务/请求处理应尽快自愿结束
+STOP_EVENT = threading.Event()
 
 
 # ---------------------------------------------------------------------------
@@ -120,6 +137,27 @@ _CLOSE_JS = (
 class _ExclusiveHTTPServer(ThreadingHTTPServer):
     allow_reuse_address = False
     daemon_threads = True
+    request_queue_size = 32
+
+    def shutdown(self) -> None:
+        """避免 server.py 里 /api/shutdown 与窗口关闭重复调用时死锁。"""
+        if STOP_EVENT.is_set():
+            return
+        try:
+            super().shutdown()
+        except Exception:
+            pass
+
+    def serve_forever(self, poll_interval: float = 0.5) -> None:
+        """closing/shutdown 期间 selector.select 可能抛 WSAENOTSOCK 10038，吞掉即可。"""
+        try:
+            super().serve_forever(poll_interval=poll_interval)
+        except OSError as exc:
+            # 10038 = WSAENOTSOCK  (Windows: closing 先 server_close 关 socket 打断 select)
+            # 9    = EBADF         (Unix: 同上)
+            if getattr(exc, "winerror", None) == 10038 or exc.errno == 9:
+                return
+            raise
 
 
 def start_server() -> tuple[ThreadingHTTPServer, int] | None:
@@ -155,7 +193,7 @@ def start_server() -> tuple[ThreadingHTTPServer, int] | None:
 
 def _wait_for_server(base_url: str, timeout: float = 8.0) -> bool:
     deadline = time.time() + timeout
-    while time.time() < deadline:
+    while time.time() < deadline and not STOP_EVENT.is_set():
         try:
             urllib.request.urlopen(base_url, timeout=0.5)
             return True
@@ -173,7 +211,145 @@ def _alert(message: str, title: str = "青叶笺", error: bool = True) -> None:
         print(message)
 
 
+# ---------------------------------------------------------------------------
+# 清理：关 HTTP server + 释放 socket + 杀掉本 Python 派生的子进程
+# ---------------------------------------------------------------------------
+_HAS_KILLED_CHILDREN = False
+_KILL_LOCK = threading.Lock()
+
+
+def _kill_my_children(timeout_s: float = 2.5) -> None:
+    """终止本进程派生的所有子进程（主要是 PDF 导出用的 Edge/Chrome 无头进程）。"""
+    global _HAS_KILLED_CHILDREN
+    with _KILL_LOCK:
+        if _HAS_KILLED_CHILDREN:
+            return
+        _HAS_KILLED_CHILDREN = True
+
+    try:
+        my_pid = os.getpid()
+    except Exception:
+        return
+
+    # 在 Windows 上用 wmic 拿父子进程关系；仅对我们可能启动的浏览器名发送 terminate
+    browser_names = ("msedge.exe", "chrome.exe")
+    children: list[int] = []
+    try:
+        output = subprocess.check_output(
+            ["wmic", "process", "get", "ProcessId,ParentProcessId,Name", "/format:list"],
+            creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+            timeout=6,
+            stderr=subprocess.DEVNULL,
+        ).decode("utf-8", "replace")
+        name = ""
+        pid = None
+        ppid = None
+        for line in output.splitlines():
+            line = line.strip()
+            if not line:
+                if (
+                    pid is not None
+                    and ppid == my_pid
+                    and name.lower() in browser_names
+                ):
+                    children.append(pid)
+                name = ""
+                pid = None
+                ppid = None
+                continue
+            if line.startswith("Name="):
+                name = line.split("=", 1)[1]
+            elif line.startswith("ProcessId="):
+                try:
+                    pid = int(line.split("=", 1)[1])
+                except ValueError:
+                    pid = None
+            elif line.startswith("ParentProcessId="):
+                try:
+                    ppid = int(line.split("=", 1)[1])
+                except ValueError:
+                    ppid = None
+        # flush last item
+        if (
+            pid is not None
+            and ppid == my_pid
+            and name.lower() in browser_names
+        ):
+            children.append(pid)
+    except Exception:
+        children = []
+
+    if not children:
+        return
+    for cpid in children:
+        try:
+            subprocess.run(
+                ["taskkill", "/PID", str(cpid), "/T", "/F"],
+                check=False,
+                timeout=timeout_s,
+                creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+            )
+        except Exception:
+            pass
+
+
+def _shutdown_cleanup(httpd: ThreadingHTTPServer | None, api: JsApi) -> None:
+    """有序清理：电源开关 → 停HTTP → 关socket → 杀子进程 → 断引用。"""
+    if STOP_EVENT.is_set():
+        return  # 保证只跑一次
+    STOP_EVENT.set()
+
+    # 1. 停止 HTTP 主循环（用户点界面「退出」时 server.py 自己的 _stop 已跑过，允许重复）
+    # shutdown 通过内部 Event 让 serve_forever 干净退出，不会打断正在处理的请求。
+    if httpd is not None:
+        try:
+            httpd.shutdown()
+        except Exception:
+            pass
+        # 2. 释放监听 socket，让下次启动一定能立刻拿到端口。
+        # 先确认 serve_forever 已退出再关（避免 WSAENOTSOCK 10038）。
+        try:
+            httpd.server_close()
+        except Exception:
+            pass
+
+    # 3. 杀本进程派生出的 Edge/Chrome 无头子进程
+    _kill_my_children()
+
+    # 4. 打断对 window 的相互引用，帮助 GC 释放 WebView2 资源
+    try:
+        if api._window is not None:
+            api._window = None
+    except Exception:
+        pass
+
+
+def _force_exit_after_deadline(deadline_s: float) -> None:
+    """后台线程：主线程退出清理仍卡住 → 强制退出。"""
+    start = time.monotonic()
+    while time.monotonic() - start < deadline_s:
+        time.sleep(0.1)
+        if STOP_EVENT.is_set():
+            return  # 正常路径已接手
+    # 仍未置位说明 main 端卡住，强退
+    os._exit(0)
+
+
 def main() -> None:
+    # Ctrl+C：直接触发 stop+强退（bat 脚本里 ctrl+c 时生效）
+    def _sigint(_signum, _frame):
+        STOP_EVENT.set()
+        _kill_my_children()
+        os._exit(0)
+
+    try:
+        signal.signal(signal.SIGINT, _sigint)
+        signal.signal(signal.SIGTERM, _sigint)
+    except Exception:
+        pass
+
     started = start_server()
     if started is None:
         _alert(
@@ -188,6 +364,10 @@ def main() -> None:
         _alert("本地服务启动超时，请重试。")
         try:
             httpd.shutdown()
+        except Exception:
+            pass
+        try:
+            httpd.server_close()
         except Exception:
             pass
         sys.exit(1)
@@ -210,23 +390,45 @@ def main() -> None:
         except Exception:
             pass
 
+    def _on_closing() -> None:
+        """用户点窗口右上角×：先置 STOP_EVENT，再由 closed 做详细清理。
+        returning False 不会阻止关闭，只是趁机拉电源闸。"""
+        _shutdown_cleanup(httpd, api)
+
     def _on_closed() -> None:
-        try:
-            httpd.shutdown()
-        except Exception:
-            pass
+        """兜底：如果 closing 没被触发或中间某步未执行完，再来一次。"""
+        _shutdown_cleanup(httpd, api)
 
     window.events.loaded += _on_loaded
+    window.events.closing += _on_closing
     window.events.closed += _on_closed
 
     # webview.start() 占用主线程直到所有窗口关闭
     webview.start()
 
-    # 保险：窗口关闭后再次确保服务停止
-    try:
-        httpd.shutdown()
-    except Exception:
-        pass
+    # 保险：窗口关闭后再次确保清理
+    _shutdown_cleanup(httpd, api)
+
+    # 如果有非 daemon 线程仍活着（WebView2 终结器/COM 线程等），最后兜底强退，
+    # 保证用户点击关闭后一定不残留 python.exe。
+    remaining = [
+        t for t in threading.enumerate() if not t.daemon and t is not threading.main_thread()
+    ]
+    if remaining:
+        try:
+            qy.log_line(
+                f"等待 {len(remaining)} 个剩余线程退出: "
+                + ", ".join(t.name or "<anon>" for t in remaining)
+            )
+        except Exception:
+            pass
+        # 给最多 2.5s 让它们自己收敛（Windows 上某些 COM 线程退出很磨蹭）
+        deadline = time.monotonic() + 2.5
+        while threading.enumerate() != [threading.main_thread()]:
+            if time.monotonic() > deadline:
+                break
+            time.sleep(0.08)
+    os._exit(0)
 
 
 if __name__ == "__main__":
