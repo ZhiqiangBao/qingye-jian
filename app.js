@@ -381,9 +381,9 @@
         if (typeof item === "object" && item !== null && "task" in item) {
           const checked = !!item.checked;
           const text = marked.parseInline(item.text || "");
-          return `<li class="task-item${checked ? " done" : ""}"><input type="checkbox" ${
-            checked ? "checked" : ""
-          } /><span class="task-text">${text}</span></li>\n`;
+          return `<li class="task-item${checked ? " done" : ""}"><span class="task-box" aria-hidden="true">${
+            checked ? "✓" : ""
+          }</span><span class="task-text">${text}</span></li>\n`;
         }
         return originalListitem(item);
       };
@@ -410,9 +410,9 @@
       if (task) {
         const checked = task[1].toLowerCase() === "x";
         out.push(
-          `<li class="task-item${checked ? " done" : ""}"><input type="checkbox" ${
-            checked ? "checked" : ""
-          } /><span class="task-text">${escapeHtml(task[2])}</span></li>`
+          `<li class="task-item${checked ? " done" : ""}"><span class="task-box" aria-hidden="true">${
+            checked ? "✓" : ""
+          }</span><span class="task-text">${escapeHtml(task[2])}</span></li>`
         );
         continue;
       }
@@ -507,11 +507,8 @@
   }
 
   function stampTaskIndexes(root) {
+    // 成品页任务不再可点选；进度以草稿纸 Markdown 的 [ ] / [x] 为准
     if (!root) return;
-    let i = 0;
-    root.querySelectorAll('input[type="checkbox"]').forEach((cb) => {
-      cb.dataset.taskIndex = String(i++);
-    });
   }
 
   function highlightCurrentHeading(md) {
@@ -1365,8 +1362,12 @@
       background: rgba(231,168,178,0.12);
     }
     .markdown-body ul { padding-left: 1.2em; }
-    .task-item { list-style: none; margin-left: -0.6em; }
-    .task-item input { margin-right: 0.4em; }
+    .task-item { list-style: none; margin-left: -0.6em; display: flex; gap: 0.45em; align-items: flex-start; }
+    .task-box {
+      flex: 0 0 auto; width: 1rem; height: 1rem; margin-top: 0.25rem;
+      border: 1.5px solid rgba(80,110,95,0.4); border-radius: 3px;
+      display: grid; place-items: center; font-size: 0.75rem; color: #3d5c4a;
+    }
     .task-item.done .task-text { text-decoration: line-through; opacity: 0.7; }
     /* PDF page size = 成品页画布尺寸（与屏幕分页同一套宽高，不重排、不缩进 A4） */
     @page { size: ${pageSizeCss}; margin: 0; }
@@ -1990,37 +1991,25 @@
     render();
   }
 
-  function checkboxIndexFromEventTarget(target) {
-    if (!target || !preview?.contains(target)) return -1;
-    let el = target;
-    if (el instanceof HTMLInputElement && el.type === "checkbox") {
-      const raw = el.dataset.taskIndex;
-      return raw != null ? Number(raw) : -1;
-    }
-    const item = el.closest?.("li.task-item");
-    if (!item || !preview.contains(item)) return -1;
-    const cb = item.querySelector('input[type="checkbox"]');
-    if (!cb) return -1;
-    const raw = cb.dataset.taskIndex;
-    return raw != null ? Number(raw) : -1;
+  function pasteCheckSticker() {
+    if (!stickersEnabled) setStickersEnabled(true);
+    const rot = -12 + Math.floor(Math.random() * 20);
+    userStickers.push({
+      id: `st_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 6)}`,
+      text: "✓",
+      shape: "round",
+      bg: "#f3d0d6",
+      ink: "#5a3a42",
+      rotate: rot,
+      width: 56,
+      page: currentPage,
+      x: 62 + Math.random() * 22,
+      y: 20 + Math.random() * 40,
+    });
+    saveUserStickers();
+    renderUserStickers();
+    setStatus(`已在成品第 ${currentPage + 1} 页贴上勾章 · 可拖动 / 翘边撕掉`);
   }
-
-  // 成品页打勾：点方框或任务文字行均可（说明文案「点方框」；点行更易点中）
-  preview?.addEventListener("click", (e) => {
-    const target = e.target;
-    if (target instanceof HTMLInputElement && target.type === "checkbox") {
-      const index = checkboxIndexFromEventTarget(target);
-      if (index >= 0) toggleCheckboxAtIndex(index, target.checked);
-      return;
-    }
-    const item = target instanceof Element ? target.closest("li.task-item") : null;
-    if (!item || !preview.contains(item)) return;
-    const cb = item.querySelector('input[type="checkbox"]');
-    if (!cb) return;
-    e.preventDefault();
-    const index = checkboxIndexFromEventTarget(cb);
-    if (index >= 0) toggleCheckboxAtIndex(index, !cb.checked);
-  });
 
   btnPagePrev?.addEventListener("click", () => goPage(-1));
   btnPageNext?.addEventListener("click", () => goPage(1));
@@ -3184,6 +3173,7 @@
     if (e.target === exportModal) closeExportModal();
   });
   document.getElementById("btnAddSticker")?.addEventListener("click", () => openStickerModal());
+  document.getElementById("btnPasteCheck")?.addEventListener("click", () => pasteCheckSticker());
   document.getElementById("btnClearStickers")?.addEventListener("click", () => {
     const onPage = userStickers.filter((s) => normalizeStickerPage(s) === currentPage);
     if (!onPage.length) {
