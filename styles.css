@@ -195,6 +195,28 @@ html, body {
   transition: none;
 }
 
+/* 「✓ 贴勾」小章：压住默认贴纸的大 padding / min-height */
+.user-sticker.is-check {
+  min-height: 0;
+  width: var(--sticker-w, 28px);
+}
+
+.user-sticker.is-check .sticker-face {
+  min-height: 0 !important;
+  aspect-ratio: 1;
+  padding: 0.12rem !important;
+  font-size: 0.78rem;
+  line-height: 1;
+  border-width: 1.5px;
+}
+
+.user-sticker.is-check .sticker-peel {
+  width: 0.85rem;
+  height: 0.85rem;
+  right: -0.15rem;
+  top: -0.15rem;
+}
+
 .user-sticker .sticker-face {
   position: relative;
   width: 100%;
@@ -1266,13 +1288,27 @@ body[data-paper-orient="landscape"][data-paper-fixed="1"] .page-stage {
   align-items: flex-start;
 }
 
-.markdown-body li.task-item input[type="checkbox"] {
-  margin-top: 0.4rem;
+/* 任务旁方框仅展示（完成打勾请用贴纸栏「✓ 贴勾」） */
+.markdown-body .task-box {
+  flex: 0 0 auto;
   width: 1.05rem;
   height: 1.05rem;
-  accent-color: var(--sage-deep);
-  cursor: pointer;
-  flex: 0 0 auto;
+  margin-top: 0.35rem;
+  border: 1.5px solid color-mix(in srgb, var(--sage-deep, #3d5c4a) 40%, white);
+  border-radius: 3px;
+  display: grid;
+  place-items: center;
+  font-size: 0.78rem;
+  line-height: 1;
+  color: var(--sage-deep, #3d5c4a);
+  background: color-mix(in srgb, var(--paper, #fff) 88%, white);
+  pointer-events: none;
+  user-select: none;
+}
+
+.markdown-body li.task-item.done .task-box {
+  background: color-mix(in srgb, var(--blush, #e7a8b2) 35%, white);
+  border-color: color-mix(in srgb, var(--blush, #e7a8b2) 55%, white);
 }
 
 .markdown-body li.task-item.done > .task-text {

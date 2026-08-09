@@ -381,9 +381,9 @@
         if (typeof item === "object" && item !== null && "task" in item) {
           const checked = !!item.checked;
           const text = marked.parseInline(item.text || "");
-          return `<li class="task-item${checked ? " done" : ""}"><input type="checkbox" ${
-            checked ? "checked" : ""
-          } /><span class="task-text">${text}</span></li>\n`;
+          return `<li class="task-item${checked ? " done" : ""}"><span class="task-box" aria-hidden="true">${
+            checked ? "✓" : ""
+          }</span><span class="task-text">${text}</span></li>\n`;
         }
         return originalListitem(item);
       };
@@ -410,9 +410,9 @@
       if (task) {
         const checked = task[1].toLowerCase() === "x";
         out.push(
-          `<li class="task-item${checked ? " done" : ""}"><input type="checkbox" ${
-            checked ? "checked" : ""
-          } /><span class="task-text">${escapeHtml(task[2])}</span></li>`
+          `<li class="task-item${checked ? " done" : ""}"><span class="task-box" aria-hidden="true">${
+            checked ? "✓" : ""
+          }</span><span class="task-text">${escapeHtml(task[2])}</span></li>`
         );
         continue;
       }
@@ -507,11 +507,8 @@
   }
 
   function stampTaskIndexes(root) {
+    // 成品页任务不再可点选；进度以草稿纸 Markdown 的 [ ] / [x] 为准
     if (!root) return;
-    let i = 0;
-    root.querySelectorAll('input[type="checkbox"]').forEach((cb) => {
-      cb.dataset.taskIndex = String(i++);
-    });
   }
 
   function highlightCurrentHeading(md) {
@@ -1057,13 +1054,15 @@
   function stickerPrintMarkup(s) {
     const shape = escapeHtml(s.shape || "note");
     const text = escapeHtml(s.text || "贴纸");
+    const isCheck = s.kind === "check" || s.text === "✓";
     const x = Number(s.x);
     const y = Number(s.y);
-    const width = Number(s.width) || 128;
+    const width = Number(s.width) || (isCheck ? 28 : 128);
     const rotate = Number(s.rotate) || 0;
     const bg = escapeHtml(s.bg || "#fff8f4");
     const ink = escapeHtml(s.ink || "#4a3d42");
-    return `<div class="user-sticker shape-${shape}" style="left:${Number.isFinite(x) ? x : 70}%;top:${
+    const cls = `user-sticker shape-${shape}${isCheck ? " is-check" : ""}`;
+    return `<div class="${cls}" style="left:${Number.isFinite(x) ? x : 70}%;top:${
       Number.isFinite(y) ? y : 22
     }%;--sticker-w:${width}px;--sticker-rot:${rotate}deg;--sticker-bg:${bg};--sticker-ink:${ink}"><div class="sticker-face"><div class="sticker-text">${text}</div></div></div>`;
   }
@@ -1338,6 +1337,11 @@
     .user-sticker.shape-ticket .sticker-face { border-radius: 6px; border: 1.5px dashed rgba(0,0,0,0.15); }
     .user-sticker.shape-heart .sticker-face { border-radius: 55% 55% 48% 48% / 48% 48% 62% 62%; border: 0; }
     .user-sticker.shape-cloud .sticker-face { border-radius: 40% 45% 40% 42% / 55% 50% 55% 48%; }
+    .user-sticker.is-check { min-height: 0; width: var(--sticker-w, 28px); }
+    .user-sticker.is-check .sticker-face {
+      min-height: 0 !important; aspect-ratio: 1; padding: 0.12rem !important;
+      font-size: 0.78rem; line-height: 1; border-width: 1.5px;
+    }
     .sheet-folio {
       position: absolute;
       right: 0.75rem;
@@ -1365,8 +1369,12 @@
       background: rgba(231,168,178,0.12);
     }
     .markdown-body ul { padding-left: 1.2em; }
-    .task-item { list-style: none; margin-left: -0.6em; }
-    .task-item input { margin-right: 0.4em; }
+    .task-item { list-style: none; margin-left: -0.6em; display: flex; gap: 0.45em; align-items: flex-start; }
+    .task-box {
+      flex: 0 0 auto; width: 1rem; height: 1rem; margin-top: 0.25rem;
+      border: 1.5px solid rgba(80,110,95,0.4); border-radius: 3px;
+      display: grid; place-items: center; font-size: 0.75rem; color: #3d5c4a;
+    }
     .task-item.done .task-text { text-decoration: line-through; opacity: 0.7; }
     /* PDF page size = 成品页画布尺寸（与屏幕分页同一套宽高，不重排、不缩进 A4） */
     @page { size: ${pageSizeCss}; margin: 0; }
@@ -1990,37 +1998,26 @@
     render();
   }
 
-  function checkboxIndexFromEventTarget(target) {
-    if (!target || !preview?.contains(target)) return -1;
-    let el = target;
-    if (el instanceof HTMLInputElement && el.type === "checkbox") {
-      const raw = el.dataset.taskIndex;
-      return raw != null ? Number(raw) : -1;
-    }
-    const item = el.closest?.("li.task-item");
-    if (!item || !preview.contains(item)) return -1;
-    const cb = item.querySelector('input[type="checkbox"]');
-    if (!cb) return -1;
-    const raw = cb.dataset.taskIndex;
-    return raw != null ? Number(raw) : -1;
+  function pasteCheckSticker() {
+    if (!stickersEnabled) setStickersEnabled(true);
+    const rot = -10 + Math.floor(Math.random() * 16);
+    userStickers.push({
+      id: `st_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 6)}`,
+      text: "✓",
+      kind: "check",
+      shape: "round",
+      bg: "#f3d0d6",
+      ink: "#5a3a42",
+      rotate: rot,
+      width: 28,
+      page: currentPage,
+      x: 62 + Math.random() * 22,
+      y: 20 + Math.random() * 40,
+    });
+    saveUserStickers();
+    renderUserStickers();
+    setStatus(`已在成品第 ${currentPage + 1} 页贴上小勾 · 可拖动 / 翘边撕掉`);
   }
-
-  // 成品页打勾：点方框或任务文字行均可（说明文案「点方框」；点行更易点中）
-  preview?.addEventListener("click", (e) => {
-    const target = e.target;
-    if (target instanceof HTMLInputElement && target.type === "checkbox") {
-      const index = checkboxIndexFromEventTarget(target);
-      if (index >= 0) toggleCheckboxAtIndex(index, target.checked);
-      return;
-    }
-    const item = target instanceof Element ? target.closest("li.task-item") : null;
-    if (!item || !preview.contains(item)) return;
-    const cb = item.querySelector('input[type="checkbox"]');
-    if (!cb) return;
-    e.preventDefault();
-    const index = checkboxIndexFromEventTarget(cb);
-    if (index >= 0) toggleCheckboxAtIndex(index, !cb.checked);
-  });
 
   btnPagePrev?.addEventListener("click", () => goPage(-1));
   btnPageNext?.addEventListener("click", () => goPage(1));
@@ -2218,10 +2215,11 @@
   }
 
   function applyStickerElStyle(el, s) {
-    el.className = `user-sticker shape-${s.shape || "note"}`;
+    const isCheck = s.kind === "check" || s.text === "✓";
+    el.className = `user-sticker shape-${s.shape || "note"}${isCheck ? " is-check" : ""}`;
     el.style.left = `${s.x ?? 70}%`;
     el.style.top = `${s.y ?? 22}%`;
-    el.style.setProperty("--sticker-w", `${s.width || 128}px`);
+    el.style.setProperty("--sticker-w", `${isCheck ? s.width || 28 : s.width || 128}px`);
     el.style.setProperty("--sticker-rot", `${s.rotate ?? -4}deg`);
     el.style.setProperty("--sticker-bg", s.bg || "#fff8f4");
     el.style.setProperty("--sticker-ink", s.ink || "#4a3d42");
@@ -3184,6 +3182,7 @@
     if (e.target === exportModal) closeExportModal();
   });
   document.getElementById("btnAddSticker")?.addEventListener("click", () => openStickerModal());
+  document.getElementById("btnPasteCheck")?.addEventListener("click", () => pasteCheckSticker());
   document.getElementById("btnClearStickers")?.addEventListener("click", () => {
     const onPage = userStickers.filter((s) => normalizeStickerPage(s) === currentPage);
     if (!onPage.length) {
