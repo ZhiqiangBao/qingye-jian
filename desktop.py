@@ -24,6 +24,7 @@ import subprocess
 import sys
 import threading
 import time
+import urllib.parse
 import urllib.request
 from http.server import ThreadingHTTPServer
 from pathlib import Path
@@ -752,6 +753,20 @@ def _force_exit_after_deadline(deadline_s: float) -> None:
     os._exit(0)
 
 
+def _launch_open_md() -> Path | None:
+    """从命令行 /「打开方式」解析要打开的 .md 文件。"""
+    for raw in sys.argv[1:]:
+        if not raw or raw.startswith("-"):
+            continue
+        try:
+            path = Path(raw).expanduser().resolve()
+        except Exception:
+            continue
+        if path.is_file() and path.suffix.lower() == ".md":
+            return path
+    return None
+
+
 def main() -> None:
     # Ctrl+C：直接触发 stop+强退（bat 脚本里 ctrl+c 时生效）
     def _sigint(_signum, _frame):
@@ -765,6 +780,8 @@ def main() -> None:
     except Exception:
         pass
 
+    open_md = _launch_open_md()
+
     started = start_server()
     if started is None:
         _alert(
@@ -774,8 +791,20 @@ def main() -> None:
         sys.exit(1)
     httpd, chosen_port = started
     base_url = f"http://{HOST}:{chosen_port}/"
+    open_rel = ""
+    if open_md is not None:
+        try:
+            qy.save_workspace_root(open_md.parent)
+            open_rel = open_md.name
+            base_url = (
+                f"http://{HOST}:{chosen_port}/"
+                f"?open={urllib.parse.quote(open_rel)}"
+            )
+            qy.log_line(f"Launch open: {open_md} (workspace={open_md.parent})")
+        except Exception as exc:
+            qy.log_line(f"Launch open failed: {exc}")
 
-    if not _wait_for_server(base_url):
+    if not _wait_for_server(f"http://{HOST}:{chosen_port}/"):
         _alert("本地服务启动超时，请重试。")
         try:
             httpd.shutdown()

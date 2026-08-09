@@ -579,6 +579,12 @@
     if (changed) saveUserStickers();
   }
 
+  /** 横宽/铺满分页高度锁定，避免读到中途因布局微抖回跳 */
+  let frozenFluidMaxH = 0;
+  let frozenFluidWidth = 0;
+  let paginateQuietUntil = 0;
+  let paginateInFlight = false;
+
   /**
    * 成品页可排版区域：优先用 page-stage 实测尺寸，并回退到皮肤 paper
    * （size / orientation / aspect → --page-aspect、--paper-pane-max、--page-max-h）。
@@ -596,6 +602,18 @@
       const r = pageStage.getBoundingClientRect();
       stageW = r.width;
       stageH = r.height;
+    }
+
+    // 铺满 / 横宽：用预览栏可用高度，避免随「当前页内容高低」抖动 → 反复分页回跳
+    if (!fixed) {
+      const pane = preview?.closest(".preview-pane");
+      if (pane) {
+        const labelH = pane.querySelector(".pane-label")?.offsetHeight || 0;
+        const navH = pane.querySelector(".page-nav")?.offsetHeight || 0;
+        const available = pane.clientHeight - labelH - navH - 10;
+        if (available > 80) stageH = available;
+        if (preview?.clientWidth > 40) stageW = preview.clientWidth;
+      }
     }
 
     if ((stageH < 48 || stageW < 48) && fixed) {
@@ -655,8 +673,18 @@
     }
 
     // measure 与 #preview 使用相同 padding；上限取纸面总高（含内边距）
-    const maxH = Math.max(80, Math.round(stageH));
+    let maxH = Math.max(80, Math.round(stageH));
     const width = Math.max(200, Math.round(preview?.clientWidth || stageW));
+
+    // 非固定纸面：宽度几乎不变时锁定 maxH，防止 ResizeObserver 抖一下就把读者弹回前面
+    if (
+      !fixed &&
+      frozenFluidMaxH > 80 &&
+      frozenFluidWidth > 0 &&
+      Math.abs(width - frozenFluidWidth) < 10
+    ) {
+      maxH = frozenFluidMaxH;
+    }
 
     return {
       width,
@@ -990,18 +1018,32 @@
     if (!pageHtmls.length) pageHtmls = [""];
 
     document.body.removeChild(measure);
+    if (!metrics.paperFixed) {
+      frozenFluidMaxH = maxH;
+      frozenFluidWidth = width;
+    }
     clampStickersToPageCount();
-    const keep = Math.min(currentPage, pageHtmls.length - 1);
+    const keep = Math.min(Math.max(0, currentPage), pageHtmls.length - 1);
     showPage(keep);
   }
 
   function schedulePaginate(html) {
     latestPreviewHtml = html;
     clearTimeout(paginateTimer);
+    paginateQuietUntil = Date.now() + 450;
     paginateTimer = setTimeout(() => {
       // 等皮肤 aspect-ratio / max-height 布局稳定后再量纸面
       requestAnimationFrame(() => {
-        requestAnimationFrame(() => paginateHtml(latestPreviewHtml));
+        requestAnimationFrame(() => {
+          if (paginateInFlight) return;
+          paginateInFlight = true;
+          try {
+            paginateHtml(latestPreviewHtml);
+          } finally {
+            paginateInFlight = false;
+            paginateQuietUntil = Date.now() + 350;
+          }
+        });
       });
     }, 60);
   }
@@ -2331,6 +2373,9 @@
     root.style.setProperty("--margin-left", margin.left || "2.1rem");
     root.style.setProperty("--margin-color", margin.color || "rgba(231,168,178,0.45)");
 
+    // 换肤后解除横宽高度锁定，按新纸面重测
+    frozenFluidMaxH = 0;
+    frozenFluidWidth = 0;
     // 纸面 CSS 变量写入后再量一次，避免用到换肤前的旧高度
     requestAnimationFrame(() => {
       requestAnimationFrame(() => {
@@ -3583,15 +3628,25 @@
     let resizeTick = null;
     let lastStageSizeKey = "";
     const ro = new ResizeObserver(() => {
+      if (paginateInFlight || Date.now() < paginateQuietUntil) return;
       clearTimeout(resizeTick);
       resizeTick = setTimeout(() => {
-        const key = `${Math.round(pageStage.clientWidth)}x${Math.round(pageStage.clientHeight)}:${
-          document.body.dataset.paperSize || ""
-        }:${document.body.dataset.paperOrient || ""}:${document.body.dataset.paperAspect || ""}`;
+        if (paginateInFlight || Date.now() < paginateQuietUntil) return;
+        const w = Math.round(pageStage.clientWidth);
+        const h = Math.round(pageStage.clientHeight);
+        const key = `${w}x${h}:${document.body.dataset.paperSize || ""}:${
+          document.body.dataset.paperOrient || ""
+        }:${document.body.dataset.paperAspect || ""}`;
         if (key === lastStageSizeKey) return;
+        // 横宽/铺满：忽略微小尺寸抖动；窗口明显拉高/拉宽仍重分页
+        if (lastStageSizeKey && document.body.dataset.paperFixed !== "1") {
+          const prevSize = lastStageSizeKey.split(":")[0] || "";
+          const [pw, ph] = prevSize.split("x").map((n) => Number(n) || 0);
+          if (Math.abs(w - pw) < 10 && Math.abs(h - ph) < 28) return;
+        }
         lastStageSizeKey = key;
         if (latestPreviewHtml) schedulePaginate(latestPreviewHtml);
-      }, 120);
+      }, 160);
     });
     ro.observe(pageStage);
   }
@@ -3603,6 +3658,8 @@
     paintFonts();
     loadUserStickers();
     renderUserStickers();
+
+    const bootOpen = (new URLSearchParams(location.search).get("open") || "").trim();
 
     if (!DEMO_FORCED) {
       try {
@@ -3623,6 +3680,17 @@
 
     await loadSkins();
     if (demoMode) await initDemoMode();
-    else await refreshList("", true);
+    else {
+      // 命令行 /「打开方式」传入的文件优先，勿自动打开示例学习计划
+      await refreshList("", !bootOpen);
+      if (bootOpen) {
+        try {
+          await openFile(bootOpen);
+        } catch (err) {
+          console.warn(err);
+          setStatus(`无法打开启动文件：${bootOpen}`);
+        }
+      }
+    }
   })();
 })();

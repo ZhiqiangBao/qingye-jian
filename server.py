@@ -1238,6 +1238,19 @@ def seed_runtime_files() -> None:
                     shutil.copy2(src_file, dest_file)
 
 
+def _launch_open_md(args: list[str]) -> Path | None:
+    for raw in args:
+        if not raw or raw.startswith("-"):
+            continue
+        try:
+            path = Path(raw).expanduser().resolve()
+        except Exception:
+            continue
+        if path.is_file() and path.suffix.lower() == ".md":
+            return path
+    return None
+
+
 def main(argv: list[str] | None = None) -> None:
     args = list(sys.argv[1:] if argv is None else argv)
     # Packaged app always opens the browser; use --no-open to suppress.
@@ -1250,7 +1263,16 @@ def main(argv: list[str] | None = None) -> None:
     SKINS_DIR.mkdir(exist_ok=True)
     HELP_DIR.mkdir(exist_ok=True)
     root = load_workspace_root()
-    url = f"http://{HOST}:{PORT}/"
+    open_md = _launch_open_md(args)
+    open_qs = ""
+    if open_md is not None:
+        try:
+            root = save_workspace_root(open_md.parent)
+            open_qs = f"?open={quote(open_md.name)}"
+            log_line(f"Launch open: {open_md}")
+        except Exception as exc:
+            log_line(f"Launch open failed: {exc}")
+    url = f"http://{HOST}:{PORT}/{open_qs}"
 
     try:
         server = ThreadingHTTPServer((HOST, PORT), Handler)
