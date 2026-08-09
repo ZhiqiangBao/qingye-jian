@@ -3316,6 +3316,43 @@
 
     await loadSkins();
     if (demoMode) await initDemoMode();
-    else await refreshList("", true);
+    else {
+      await refreshList("", true);
+      startLocalSessionWatchdog();
+    }
   })();
+
+  /** Keep local server alive while the tab is open; closing the tab ends the process. */
+  function startLocalSessionWatchdog() {
+    if (demoMode) return;
+    const ping = () => {
+      fetch("/api/heartbeat", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: "{}",
+        cache: "no-store",
+        keepalive: true,
+      }).catch(() => {});
+    };
+    ping();
+    setInterval(ping, 5000);
+    const gone = () => {
+      try {
+        if (navigator.sendBeacon) {
+          navigator.sendBeacon("/api/client-gone", "{}");
+        } else {
+          fetch("/api/client-gone", {
+            method: "POST",
+            body: "{}",
+            keepalive: true,
+            cache: "no-store",
+          }).catch(() => {});
+        }
+      } catch (_) {
+        /* ignore */
+      }
+    };
+    window.addEventListener("pagehide", gone);
+    window.addEventListener("beforeunload", gone);
+  }
 })();

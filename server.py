@@ -16,6 +16,8 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import threading
+import time
 import uuid
 import webbrowser
 from datetime import datetime
@@ -52,6 +54,13 @@ CONFIG_PATH = APP_ROOT / "workspace.json"
 DEFAULT_HELP_DOC = "编辑技巧.md"
 HOST = "127.0.0.1"
 PORT = 8765
+# Auto-exit when the browser tab is gone (see /api/heartbeat + /api/client-gone).
+CLIENT_IDLE_SEC = 60.0
+CLIENT_GONE_GRACE_SEC = 3.0
+STARTUP_GRACE_SEC = 15.0
+_last_client_seen = time.monotonic()
+_shutdown_deadline: float | None = None
+_client_lock = threading.Lock()
 SEED_DIRS = ("templates", "skins", "help", "document")
 SEED_FILES = (
     "index.html",
@@ -736,6 +745,60 @@ def render_html_to_pdf(html: str) -> bytes:
             pass
 
 
+def touch_client() -> None:
+    """Browser still here — cancel any pending tab-close shutdown."""
+    global _last_client_seen, _shutdown_deadline
+    with _client_lock:
+        _last_client_seen = time.monotonic()
+        _shutdown_deadline = None
+
+
+def note_client_gone() -> None:
+    """Tab is closing; shut down soon unless a new page heartbeats in time (refresh)."""
+    global _shutdown_deadline
+    with _client_lock:
+        _shutdown_deadline = time.monotonic() + CLIENT_GONE_GRACE_SEC
+
+
+def force_exit_soon() -> None:
+    """Ensure the frozen exe process actually dies after server.shutdown()."""
+
+    def _exit() -> None:
+        time.sleep(0.4)
+        os._exit(0)
+
+    threading.Thread(target=_exit, daemon=True).start()
+
+
+def start_client_watchdog(server: ThreadingHTTPServer) -> None:
+    def _loop() -> None:
+        time.sleep(STARTUP_GRACE_SEC)
+        while True:
+            time.sleep(0.5)
+            now = time.monotonic()
+            with _client_lock:
+                deadline = _shutdown_deadline
+                last = _last_client_seen
+            if deadline is not None and now >= deadline:
+                log_line("Browser tab closed; shutting down.")
+                try:
+                    server.shutdown()
+                except Exception:
+                    pass
+                force_exit_soon()
+                return
+            if now - last >= CLIENT_IDLE_SEC:
+                log_line("No browser heartbeat; shutting down.")
+                try:
+                    server.shutdown()
+                except Exception:
+                    pass
+                force_exit_soon()
+                return
+
+    threading.Thread(target=_loop, daemon=True, name="client-watchdog").start()
+
+
 def unique_md_path(rel_dir: str, filename: str) -> Path:
     if not filename.lower().endswith(".md"):
         filename += ".md"
@@ -784,6 +847,11 @@ class Handler(BaseHTTPRequestHandler):
         parsed = urlparse(self.path)
         path = parsed.path
         qs = parse_qs(parsed.query)
+        touch_client()
+
+        if path == "/api/heartbeat":
+            self._send_json(200, {"ok": True})
+            return
 
         if path == "/api/workspace":
             root = workspace_root()
@@ -985,11 +1053,24 @@ class Handler(BaseHTTPRequestHandler):
 
     def do_POST(self) -> None:
         parsed = urlparse(self.path)
+        # Tab-close beacon may send empty/non-JSON body.
+        if parsed.path in {"/api/heartbeat", "/api/client-gone"}:
+            self._read_body()
+            if parsed.path == "/api/heartbeat":
+                touch_client()
+                self._send_json(200, {"ok": True})
+            else:
+                note_client_gone()
+                self._send_json(200, {"ok": True, "closing": True})
+            return
+
         try:
             payload = json.loads(self._read_body().decode("utf-8") or "{}")
         except Exception:
             self._send_json(400, {"error": "invalid json body"})
             return
+
+        touch_client()
 
         if parsed.path == "/api/workspace":
             raw = str(payload.get("root") or "").strip()
@@ -1063,8 +1144,11 @@ class Handler(BaseHTTPRequestHandler):
                     self.server.shutdown()
                 except Exception:
                     pass
-
-            import threading
+                try:
+                    self.server.server_close()
+                except Exception:
+                    pass
+                force_exit_soon()
 
             threading.Thread(target=_stop, daemon=True).start()
             return
@@ -1301,9 +1385,18 @@ def main(argv: list[str] | None = None) -> None:
         except Exception as exc:
             notify_user(f"服务已启动，但未能自动打开浏览器。\n请手动访问：\n{url}\n\n{exc}", error=True)
 
+    touch_client()
+    start_client_watchdog(server)
+
     try:
         server.serve_forever()
     except KeyboardInterrupt:
+        log_line("Stopped.")
+    finally:
+        try:
+            server.server_close()
+        except Exception:
+            pass
         log_line("Stopped.")
 
 
