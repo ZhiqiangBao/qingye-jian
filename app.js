@@ -1054,13 +1054,15 @@
   function stickerPrintMarkup(s) {
     const shape = escapeHtml(s.shape || "note");
     const text = escapeHtml(s.text || "贴纸");
+    const isCheck = s.kind === "check" || s.text === "✓";
     const x = Number(s.x);
     const y = Number(s.y);
-    const width = Number(s.width) || 128;
+    const width = Number(s.width) || (isCheck ? 28 : 128);
     const rotate = Number(s.rotate) || 0;
     const bg = escapeHtml(s.bg || "#fff8f4");
     const ink = escapeHtml(s.ink || "#4a3d42");
-    return `<div class="user-sticker shape-${shape}" style="left:${Number.isFinite(x) ? x : 70}%;top:${
+    const cls = `user-sticker shape-${shape}${isCheck ? " is-check" : ""}`;
+    return `<div class="${cls}" style="left:${Number.isFinite(x) ? x : 70}%;top:${
       Number.isFinite(y) ? y : 22
     }%;--sticker-w:${width}px;--sticker-rot:${rotate}deg;--sticker-bg:${bg};--sticker-ink:${ink}"><div class="sticker-face"><div class="sticker-text">${text}</div></div></div>`;
   }
@@ -1335,6 +1337,11 @@
     .user-sticker.shape-ticket .sticker-face { border-radius: 6px; border: 1.5px dashed rgba(0,0,0,0.15); }
     .user-sticker.shape-heart .sticker-face { border-radius: 55% 55% 48% 48% / 48% 48% 62% 62%; border: 0; }
     .user-sticker.shape-cloud .sticker-face { border-radius: 40% 45% 40% 42% / 55% 50% 55% 48%; }
+    .user-sticker.is-check { min-height: 0; width: var(--sticker-w, 28px); }
+    .user-sticker.is-check .sticker-face {
+      min-height: 0 !important; aspect-ratio: 1; padding: 0.12rem !important;
+      font-size: 0.78rem; line-height: 1; border-width: 1.5px;
+    }
     .sheet-folio {
       position: absolute;
       right: 0.75rem;
@@ -1993,22 +2000,23 @@
 
   function pasteCheckSticker() {
     if (!stickersEnabled) setStickersEnabled(true);
-    const rot = -12 + Math.floor(Math.random() * 20);
+    const rot = -10 + Math.floor(Math.random() * 16);
     userStickers.push({
       id: `st_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 6)}`,
       text: "✓",
+      kind: "check",
       shape: "round",
       bg: "#f3d0d6",
       ink: "#5a3a42",
       rotate: rot,
-      width: 56,
+      width: 28,
       page: currentPage,
       x: 62 + Math.random() * 22,
       y: 20 + Math.random() * 40,
     });
     saveUserStickers();
     renderUserStickers();
-    setStatus(`已在成品第 ${currentPage + 1} 页贴上勾章 · 可拖动 / 翘边撕掉`);
+    setStatus(`已在成品第 ${currentPage + 1} 页贴上小勾 · 可拖动 / 翘边撕掉`);
   }
 
   btnPagePrev?.addEventListener("click", () => goPage(-1));
@@ -2207,10 +2215,11 @@
   }
 
   function applyStickerElStyle(el, s) {
-    el.className = `user-sticker shape-${s.shape || "note"}`;
+    const isCheck = s.kind === "check" || s.text === "✓";
+    el.className = `user-sticker shape-${s.shape || "note"}${isCheck ? " is-check" : ""}`;
     el.style.left = `${s.x ?? 70}%`;
     el.style.top = `${s.y ?? 22}%`;
-    el.style.setProperty("--sticker-w", `${s.width || 128}px`);
+    el.style.setProperty("--sticker-w", `${isCheck ? s.width || 28 : s.width || 128}px`);
     el.style.setProperty("--sticker-rot", `${s.rotate ?? -4}deg`);
     el.style.setProperty("--sticker-bg", s.bg || "#fff8f4");
     el.style.setProperty("--sticker-ink", s.ink || "#4a3d42");

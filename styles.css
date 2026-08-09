@@ -195,6 +195,28 @@ html, body {
   transition: none;
 }
 
+/* 「✓ 贴勾」小章：压住默认贴纸的大 padding / min-height */
+.user-sticker.is-check {
+  min-height: 0;
+  width: var(--sticker-w, 28px);
+}
+
+.user-sticker.is-check .sticker-face {
+  min-height: 0 !important;
+  aspect-ratio: 1;
+  padding: 0.12rem !important;
+  font-size: 0.78rem;
+  line-height: 1;
+  border-width: 1.5px;
+}
+
+.user-sticker.is-check .sticker-peel {
+  width: 0.85rem;
+  height: 0.85rem;
+  right: -0.15rem;
+  top: -0.15rem;
+}
+
 .user-sticker .sticker-face {
   position: relative;
   width: 100%;
