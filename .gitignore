@@ -23,6 +23,9 @@ desktop.ini
 # Local workspace path config (machine-specific)
 workspace.json
 
+# Local promo assets (screenshots, drafts) — never commit
+promo/
+
 # Packaging / release artifacts
 dist/
 build/
