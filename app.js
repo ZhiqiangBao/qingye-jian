@@ -579,11 +579,104 @@
     if (changed) saveUserStickers();
   }
 
+  /**
+   * 成品页可排版区域：优先用 page-stage 实测尺寸，并回退到皮肤 paper
+   * （size / orientation / aspect → --page-aspect、--paper-pane-max、--page-max-h）。
+   * marked 只负责把 md 变成 HTML；是否「超出一页」由这里的度量驱动分页。
+   */
+  function getPaperPageMetrics() {
+    const body = document.body;
+    const fixed = body.dataset.paperFixed === "1";
+    const csPreview = preview ? getComputedStyle(preview) : null;
+    const csBody = getComputedStyle(body);
+
+    let stageW = 0;
+    let stageH = 0;
+    if (pageStage) {
+      const r = pageStage.getBoundingClientRect();
+      stageW = r.width;
+      stageH = r.height;
+    }
+
+    if ((stageH < 48 || stageW < 48) && fixed) {
+      const aspect = (
+        body.style.getPropertyValue("--page-aspect") ||
+        csBody.getPropertyValue("--page-aspect") ||
+        "148 / 210"
+      ).trim();
+      const paneMax = (
+        body.style.getPropertyValue("--paper-pane-max") ||
+        csBody.getPropertyValue("--paper-pane-max") ||
+        "30rem"
+      ).trim();
+      const maxHraw = (
+        body.style.getPropertyValue("--page-max-h") ||
+        csBody.getPropertyValue("--page-max-h") ||
+        "min(78vh, 900px)"
+      ).trim();
+
+      const parentW =
+        pageStage?.parentElement?.clientWidth ||
+        document.getElementById("workspace")?.clientWidth ||
+        Math.min(window.innerWidth * 0.45, 640);
+      let paneMaxPx = 480;
+      if (paneMax.endsWith("rem")) paneMaxPx = (parseFloat(paneMax) || 30) * 16;
+      else if (paneMax.endsWith("px")) paneMaxPx = parseFloat(paneMax) || 480;
+      stageW = Math.max(200, Math.min(paneMaxPx, parentW * 0.98));
+
+      let aw = 148;
+      let ah = 210;
+      const am = aspect.match(/(\d+(?:\.\d+)?)\s*\/\s*(\d+(?:\.\d+)?)/);
+      if (am) {
+        aw = Number(am[1]);
+        ah = Number(am[2]);
+      } else {
+        const n = Number(aspect);
+        if (Number.isFinite(n) && n > 0) {
+          aw = n;
+          ah = 1;
+        }
+      }
+      stageH = stageW * (ah / Math.max(aw, 0.01));
+
+      let cap = window.innerHeight * 0.78;
+      const capM = maxHraw.match(/min\(\s*([\d.]+)vh\s*,\s*([\d.]+)px\s*\)/i);
+      if (capM) {
+        cap = Math.min(window.innerHeight * (Number(capM[1]) / 100), Number(capM[2]));
+      }
+      stageH = Math.min(stageH, cap);
+    }
+
+    if (stageH < 48) {
+      stageH = fixed ? 560 : Math.max(320, window.innerHeight * 0.55);
+    }
+    if (stageW < 48) {
+      stageW = preview?.clientWidth || 360;
+    }
+
+    // measure 与 #preview 使用相同 padding；上限取纸面总高（含内边距）
+    const maxH = Math.max(80, Math.round(stageH));
+    const width = Math.max(200, Math.round(preview?.clientWidth || stageW));
+
+    return {
+      width,
+      maxH,
+      padStr: csPreview?.padding || "0.7rem 1.25rem 1.2rem 2.6rem",
+      fontFamily: csPreview?.fontFamily || "",
+      fontSize: csPreview?.fontSize || "",
+      lineHeight: csPreview?.lineHeight || "",
+      paperSize: body.dataset.paperSize || "a4",
+      paperFixed: fixed,
+      aspect: (
+        body.style.getPropertyValue("--page-aspect") ||
+        csBody.getPropertyValue("--page-aspect") ||
+        ""
+      ).trim(),
+    };
+  }
+
   function getPageContentHeight() {
-    const h = preview?.clientHeight || pageStage?.clientHeight || 0;
-    if (h > 40) return h;
-    const fixed = document.body.dataset.paperFixed === "1";
-    return fixed ? 560 : Math.max(320, window.innerHeight * 0.55);
+    return getPaperPageMetrics().maxH;
   }
 
   /** Turn md comments into real DOM markers (HTML comments are often dropped). */
@@ -628,16 +721,16 @@
       showPage(0);
       return;
     }
-    const width = Math.max(200, preview.clientWidth || pageStage.clientWidth || 360);
-    const maxH = getPageContentHeight();
+    const metrics = getPaperPageMetrics();
+    const { width, maxH, padStr, fontFamily, fontSize, lineHeight } = metrics;
     const measure = document.createElement("div");
     measure.className = "preview markdown-body page-measure";
     measure.style.width = `${width}px`;
-    measure.style.padding = getComputedStyle(preview).padding;
+    measure.style.padding = padStr;
     measure.style.boxSizing = "border-box";
-    measure.style.fontFamily = getComputedStyle(preview).fontFamily;
-    measure.style.fontSize = getComputedStyle(preview).fontSize;
-    measure.style.lineHeight = getComputedStyle(preview).lineHeight;
+    if (fontFamily) measure.style.fontFamily = fontFamily;
+    if (fontSize) measure.style.fontSize = fontSize;
+    if (lineHeight) measure.style.lineHeight = lineHeight;
     document.body.appendChild(measure);
 
     const source = document.createElement("div");
@@ -670,6 +763,12 @@
     const fitsNodes = (nodes) => measureHeight(nodes) <= maxH + 1;
 
     const isTable = (n) => n && n.nodeType === Node.ELEMENT_NODE && n.tagName === "TABLE";
+    const isList = (n) =>
+      n && n.nodeType === Node.ELEMENT_NODE && (n.tagName === "UL" || n.tagName === "OL");
+    const canSplitText = (n) =>
+      n &&
+      n.nodeType === Node.ELEMENT_NODE &&
+      ["P", "H1", "H2", "H3", "H4", "H5", "H6", "BLOCKQUOTE", "LI", "DIV"].includes(n.tagName);
 
     const sealPage = () => {
       if (!pageNodes.length) return;
@@ -684,7 +783,6 @@
       let rows = tbody
         ? [...tbody.querySelectorAll(":scope > tr")].map((r) => r.cloneNode(true))
         : [...table.querySelectorAll(":scope > tr")].map((r) => r.cloneNode(true));
-      // Some renderers put header row as first tr without thead
       if (!header && rows.length && rows[0].querySelector("th")) {
         header = document.createElement("thead");
         header.appendChild(rows.shift());
@@ -702,24 +800,16 @@
       return t;
     };
 
-    /** Split a tall table across pages; continue header on each chunk. */
     const appendTable = (table) => {
       const parts = extractTableParts(table);
       if (!parts.rows.length) {
-        pageNodes.push(table);
-        if (!fitsNodes(pageNodes)) {
-          pageNodes.pop();
-          if (pageNodes.length) pages.push(pageNodes);
-          pages.push([table]);
-          pageNodes = [];
-        }
+        forceOrPush(table);
         return;
       }
 
       let i = 0;
       while (i < parts.rows.length) {
         let took = 0;
-        // Greedily pack as many rows as fit on the current page
         while (i + took < parts.rows.length) {
           const trial = buildTable(parts, parts.rows.slice(i, i + took + 1));
           if (!fitsNodes([...pageNodes, trial])) break;
@@ -729,61 +819,163 @@
         if (took > 0) {
           pageNodes.push(buildTable(parts, parts.rows.slice(i, i + took)));
           i += took;
-          // Page is full (or table finished): if more rows remain, seal this page
-          if (i < parts.rows.length) {
-            pages.push(pageNodes);
-            pageNodes = [];
-          }
+          if (i < parts.rows.length) sealPage();
           continue;
         }
 
-        // Nothing fit: current page already has content → new page and retry
         if (pageNodes.length) {
-          pages.push(pageNodes);
-          pageNodes = [];
+          sealPage();
           continue;
         }
 
-        // Empty page but a single row still overflows → force one row (avoid infinite loop)
         pageNodes.push(buildTable(parts, [parts.rows[i]]));
-        pages.push(pageNodes);
-        pageNodes = [];
+        sealPage();
         i += 1;
       }
     };
 
-    for (const block of blocks) {
-      const node = block.cloneNode(true);
+    const appendList = (list) => {
+      const items = [...list.children].filter((c) => c.tagName === "LI");
+      if (!items.length) {
+        forceOrPush(list);
+        return;
+      }
+      let i = 0;
+      while (i < items.length) {
+        let took = 0;
+        while (i + took < items.length) {
+          const trial = list.cloneNode(false);
+          for (const li of items.slice(i, i + took + 1)) trial.appendChild(li.cloneNode(true));
+          if (!fitsNodes([...pageNodes, trial])) break;
+          took += 1;
+        }
+        if (took > 0) {
+          const chunk = list.cloneNode(false);
+          for (const li of items.slice(i, i + took)) chunk.appendChild(li.cloneNode(true));
+          pageNodes.push(chunk);
+          i += took;
+          if (i < items.length) sealPage();
+          continue;
+        }
+        if (pageNodes.length) {
+          sealPage();
+          continue;
+        }
+        // 单条 li 仍超高：按文本再拆
+        const li = items[i];
+        if (canSplitText(li) && !fitsNodes([li])) {
+          appendTextSplit(li);
+        } else {
+          pageNodes.push(li.cloneNode(true));
+          sealPage();
+        }
+        i += 1;
+      }
+    };
 
-      // <!-- pagebreak --> / <!-- page-top --> → force following content onto a new page
-      if (isPageBreakMarker(node)) {
+    /** 超高段落/标题：按纯文本二分拆到多页（尽量不撑破纸面） */
+    const appendTextSplit = (node) => {
+      const full = String(node.textContent || "");
+      if (!full.trim()) {
+        forceOrPush(node);
+        return;
+      }
+
+      const makeChunk = (text) => {
+        const el = node.cloneNode(false);
+        el.textContent = text;
+        return el;
+      };
+
+      let rest = full;
+      while (rest.trim()) {
+        if (fitsNodes([...pageNodes, makeChunk(rest)])) {
+          pageNodes.push(makeChunk(rest));
+          return;
+        }
+        if (pageNodes.length && !fitsNodes([makeChunk(rest)])) {
+          sealPage();
+          continue;
+        }
+
+        let lo = 1;
+        let hi = rest.length;
+        let best = 0;
+        while (lo <= hi) {
+          const mid = (lo + hi) >> 1;
+          const trial = makeChunk(rest.slice(0, mid));
+          if (fitsNodes(pageNodes.length ? [...pageNodes, trial] : [trial])) {
+            best = mid;
+            lo = mid + 1;
+          } else {
+            hi = mid - 1;
+          }
+        }
+        if (best <= 0) {
+          // 单字都塞不下时仍强制一页，避免死循环
+          const n = Math.min(24, rest.length);
+          pageNodes.push(makeChunk(rest.slice(0, n)));
+          sealPage();
+          rest = rest.slice(n);
+          continue;
+        }
+        pageNodes.push(makeChunk(rest.slice(0, best)));
         sealPage();
-        continue;
+        rest = rest.slice(best).replace(/^\s+/, "");
       }
+    };
 
-      if (isTable(node)) {
-        // Try whole table first (keeps short tables intact)
-        pageNodes.push(node);
-        if (fitsNodes(pageNodes)) continue;
-        pageNodes.pop();
-        appendTable(node);
-        continue;
-      }
-
+    const forceOrPush = (node) => {
       pageNodes.push(node);
-      if (fitsNodes(pageNodes)) continue;
+      if (fitsNodes(pageNodes)) return;
       pageNodes.pop();
       if (pageNodes.length) {
-        pages.push(pageNodes);
-        pageNodes = [node];
+        sealPage();
+        pageNodes.push(node);
         if (!fitsNodes(pageNodes)) {
-          pages.push(pageNodes);
-          pageNodes = [];
+          sealPage();
         }
       } else {
         pages.push([node]);
-        pageNodes = [];
       }
+    };
+
+    const appendBlock = (node) => {
+      if (isPageBreakMarker(node)) {
+        sealPage();
+        return;
+      }
+      if (isTable(node)) {
+        pageNodes.push(node);
+        if (fitsNodes(pageNodes)) return;
+        pageNodes.pop();
+        appendTable(node);
+        return;
+      }
+      if (isList(node)) {
+        pageNodes.push(node);
+        if (fitsNodes(pageNodes)) return;
+        pageNodes.pop();
+        appendList(node);
+        return;
+      }
+      pageNodes.push(node);
+      if (fitsNodes(pageNodes)) return;
+      pageNodes.pop();
+      if (pageNodes.length) {
+        sealPage();
+        appendBlock(node);
+        return;
+      }
+      if (canSplitText(node)) {
+        appendTextSplit(node);
+        return;
+      }
+      pages.push([node]);
+    };
+
+    for (const block of blocks) {
+      appendBlock(block.cloneNode(true));
     }
     if (pageNodes.length) pages.push(pageNodes);
 
@@ -807,7 +999,10 @@
     latestPreviewHtml = html;
     clearTimeout(paginateTimer);
     paginateTimer = setTimeout(() => {
-      requestAnimationFrame(() => paginateHtml(latestPreviewHtml));
+      // 等皮肤 aspect-ratio / max-height 布局稳定后再量纸面
+      requestAnimationFrame(() => {
+        requestAnimationFrame(() => paginateHtml(latestPreviewHtml));
+      });
     }, 60);
   }
 
@@ -2136,9 +2331,12 @@
     root.style.setProperty("--margin-left", margin.left || "2.1rem");
     root.style.setProperty("--margin-color", margin.color || "rgba(231,168,178,0.45)");
 
+    // 纸面 CSS 变量写入后再量一次，避免用到换肤前的旧高度
     requestAnimationFrame(() => {
-      if (latestPreviewHtml) schedulePaginate(latestPreviewHtml);
-      else render();
+      requestAnimationFrame(() => {
+        if (latestPreviewHtml) schedulePaginate(latestPreviewHtml);
+        else render();
+      });
     });
   }
 
@@ -3383,9 +3581,15 @@
 
   if (pageStage && typeof ResizeObserver !== "undefined") {
     let resizeTick = null;
+    let lastStageSizeKey = "";
     const ro = new ResizeObserver(() => {
       clearTimeout(resizeTick);
       resizeTick = setTimeout(() => {
+        const key = `${Math.round(pageStage.clientWidth)}x${Math.round(pageStage.clientHeight)}:${
+          document.body.dataset.paperSize || ""
+        }:${document.body.dataset.paperOrient || ""}:${document.body.dataset.paperAspect || ""}`;
+        if (key === lastStageSizeKey) return;
+        lastStageSizeKey = key;
         if (latestPreviewHtml) schedulePaginate(latestPreviewHtml);
       }, 120);
     });
