@@ -239,7 +239,7 @@
     el.innerHTML =
       '🌿 <strong>青叶笺 · 在线 Demo</strong>：可试皮肤 / 贴纸 / 翻页 / 导出。' +
       '保存仅存本机浏览器，完整读写请下载桌面版。' +
-      ' <a href="https://github.com/ZhiqiangBao/qingye-jian" target="_blank" rel="noopener">GitHub</a>';
+      ' <a href="https://github.com/ZhiqiangBao/qingye-jian" target="_blank" rel="noopener">青叶笺-GitHub仓库</a>';
     document.body.classList.add("is-demo");
     const quit = document.getElementById("btnQuitApp");
     if (quit) {
