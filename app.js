@@ -799,58 +799,229 @@
     showPage(next, { animate: true });
   }
 
+  /** Skin paper.size / orientation / aspect control preview ratio only — not ISO trays. */
+  const PAPER_SIZE_META = {
+    a4: {
+      label: "A4比例",
+      chip: "A4比例",
+      chipLandscape: "A4横",
+      w: 210,
+      h: 297,
+      paneMax: "42rem",
+      paneMaxLandscape: "52rem",
+      hint: "预览竖页比例（非打印机 A4）。可用 orientation/aspect 改横页或自定义比。",
+    },
+    a5: {
+      label: "A5比例",
+      chip: "A5比例",
+      chipLandscape: "A5横",
+      w: 148,
+      h: 210,
+      paneMax: "30rem",
+      paneMaxLandscape: "44rem",
+      hint: "预览竖页比例（非打印机 A5）。可用 orientation/aspect 改横页或自定义比。",
+    },
+    b6: {
+      label: "B6比例",
+      chip: "B6比例",
+      chipLandscape: "B6横",
+      w: 125,
+      h: 176,
+      paneMax: "24rem",
+      paneMaxLandscape: "38rem",
+      hint: "预览小竖页比例（非打印机 B6）。可用 orientation/aspect 改横页或自定义比。",
+    },
+    square: {
+      label: "方形比例",
+      chip: "方形",
+      chipLandscape: "方形",
+      w: 1,
+      h: 1,
+      paneMax: "28rem",
+      paneMaxLandscape: "28rem",
+      hint: "预览 1:1 比例。也可用 paper.aspect 自定义。",
+    },
+    wide: {
+      label: "横宽铺满",
+      chip: "横宽",
+      chipLandscape: "横宽",
+      w: 297,
+      h: 210,
+      paneMax: "none",
+      paneMaxLandscape: "none",
+      hint: "预览铺满工作区（偏横向）。写 paper.aspect 时可改为固定比例页。",
+    },
+    full: {
+      label: "铺满",
+      chip: "铺满",
+      chipLandscape: "铺满",
+      w: 210,
+      h: 297,
+      paneMax: "none",
+      paneMaxLandscape: "none",
+      hint: "预览铺满工作区。写 paper.aspect 时可改为固定比例页。",
+    },
+  };
+
+  function paperSizeMeta(size) {
+    return PAPER_SIZE_META[size] || PAPER_SIZE_META.a4;
+  }
+
+  /** Parse paper.aspect → CSS aspect-ratio value, or null if invalid. */
+  function parsePaperAspect(raw) {
+    if (raw == null) return null;
+    const s = String(raw).trim();
+    if (!s) return null;
+    const ratio = s.match(/^(\d+(?:\.\d+)?)\s*[\/:]\s*(\d+(?:\.\d+)?)$/);
+    if (ratio) {
+      const a = Number(ratio[1]);
+      const b = Number(ratio[2]);
+      if (!(a > 0 && b > 0)) return null;
+      return `${a} / ${b}`;
+    }
+    const n = Number(s);
+    if (Number.isFinite(n) && n > 0) return String(n);
+    return null;
+  }
+
+  function resolvePaperGeometry(paper) {
+    const p = paper || {};
+    const size = p.size || "full";
+    const meta = paperSizeMeta(size);
+    const orientRaw = String(p.orientation || "portrait").toLowerCase();
+    const landscape = orientRaw === "landscape" || orientRaw === "horizontal" || orientRaw === "横";
+    const customAspect = parsePaperAspect(p.aspect);
+    const presetFixed = ["a4", "a5", "b6", "square"].includes(size);
+
+    let aspectCss = null;
+    let fixed = false;
+    let chip = meta.chip;
+    let hint = meta.hint;
+    let paneMax = meta.paneMax;
+    let orient = "portrait";
+
+    if (customAspect) {
+      fixed = true;
+      aspectCss = customAspect;
+      chip = "自定义比";
+      hint = `自定义预览比例 ${customAspect}（非打印机纸型）。导出 PDF 按屏幕成品页。`;
+      const m = customAspect.match(/^(\d+(?:\.\d+)?)\s*\/\s*(\d+(?:\.\d+)?)$/);
+      if (m) {
+        const aw = Number(m[1]);
+        const ah = Number(m[2]);
+        orient = aw >= ah ? "landscape" : "portrait";
+        paneMax = orient === "landscape" ? "48rem" : "36rem";
+      } else {
+        orient = Number(customAspect) >= 1 ? "landscape" : "portrait";
+        paneMax = orient === "landscape" ? "48rem" : "36rem";
+      }
+    } else if (presetFixed) {
+      fixed = true;
+      let w = meta.w;
+      let h = meta.h;
+      if (landscape && size !== "square") {
+        const t = w;
+        w = h;
+        h = t;
+        orient = "landscape";
+        chip = meta.chipLandscape || `${meta.chip.replace(/比例$/, "")}横`;
+        paneMax = meta.paneMaxLandscape || meta.paneMax;
+        hint = `预览横页比例（基于 ${size}，非打印机纸型）。导出 PDF 按屏幕成品页。`;
+      } else {
+        orient = "portrait";
+        chip = meta.chip;
+        paneMax = meta.paneMax;
+      }
+      aspectCss = `${w} / ${h}`;
+    } else {
+      // full / wide: fluid unless custom aspect already handled
+      fixed = false;
+      aspectCss = null;
+      orient = size === "wide" || landscape ? "landscape" : "portrait";
+      chip = meta.chip;
+      paneMax = "none";
+    }
+
+    return {
+      size,
+      fixed,
+      aspectCss,
+      orient,
+      chip,
+      hint,
+      paneMax,
+      landscape: orient === "landscape",
+      custom: !!customAspect,
+    };
+  }
+
+  function paperSizeChipLabel(paperOrSize) {
+    if (paperOrSize && typeof paperOrSize === "object") {
+      return resolvePaperGeometry(paperOrSize).chip;
+    }
+    return resolvePaperGeometry({ size: paperOrSize || "a4" }).chip;
+  }
+
   function printPaperSpec() {
     const size = document.body.dataset.paperSize || "a4";
-    const map = {
-      a4: {
-        label: "A4",
-        cssSize: "210mm 297mm",
-        width: "210mm",
-        height: "297mm",
-        hint: "请在打印设置中选择 A4 纵向",
-      },
-      a5: {
-        label: "A5",
-        cssSize: "148mm 210mm",
-        width: "148mm",
-        height: "210mm",
-        hint: "请在打印设置中选择 A5 纵向",
-      },
-      b6: {
-        label: "B6",
-        cssSize: "125mm 176mm",
-        width: "125mm",
-        height: "176mm",
-        hint: "请选择自定义纸张 125×176mm，或最接近的 B6",
-      },
-      square: {
-        label: "方形",
-        cssSize: "148mm 148mm",
-        width: "148mm",
-        height: "148mm",
-        hint: "请选择自定义纸张 148×148mm",
-      },
-      wide: {
-        label: "宽页≈A4 横向",
-        cssSize: "297mm 210mm",
-        width: "297mm",
-        height: "210mm",
-        hint: "请在打印设置中选择 A4 横向",
-      },
-      full: {
-        label: "铺满≈A4",
-        cssSize: "210mm 297mm",
-        width: "210mm",
-        height: "297mm",
-        hint: "请在打印设置中选择 A4 纵向",
-      },
+    const meta = paperSizeMeta(size);
+    const geo = resolvePaperGeometry({
+      size,
+      orientation: document.body.dataset.paperOrient || "portrait",
+      aspect: document.body.dataset.paperAspect || undefined,
+    });
+    return {
+      label: geo.chip,
+      cssSize: geo.aspectCss ? undefined : `${meta.w}mm ${meta.h}mm`,
+      width: `${meta.w}mm`,
+      height: `${meta.h}mm`,
+      hint: geo.hint,
     };
-    return map[size] || map.a4;
   }
 
   function cssVar(name, fallback) {
     const v = getComputedStyle(document.documentElement).getPropertyValue(name).trim();
     return v || fallback;
+  }
+
+  /** Mix a CSS color with white; amount = weight of the base color (0–1). Returns #rrggbb. */
+  function mixCssColorWithWhite(cssColor, amount = 0.7) {
+    const t = Math.min(1, Math.max(0, Number(amount) || 0));
+    const probe = document.createElement("div");
+    probe.style.color = cssColor || "#e7a8b2";
+    probe.style.position = "absolute";
+    probe.style.visibility = "hidden";
+    document.body.appendChild(probe);
+    const resolved = getComputedStyle(probe).color;
+    probe.remove();
+    const m = String(resolved).match(/rgba?\(\s*([\d.]+)\s*,\s*([\d.]+)\s*,\s*([\d.]+)/i);
+    let r = 231;
+    let g = 168;
+    let b = 178;
+    if (m) {
+      r = Number(m[1]);
+      g = Number(m[2]);
+      b = Number(m[3]);
+    } else {
+      // Chrome may return color(srgb …); normalize via canvas
+      try {
+        const ctx = document.createElement("canvas").getContext("2d");
+        ctx.fillStyle = "#000";
+        ctx.fillStyle = cssColor || "#e7a8b2";
+        const hex = String(ctx.fillStyle);
+        const hm = hex.match(/^#([0-9a-f]{6})$/i);
+        if (hm) {
+          r = parseInt(hm[1].slice(0, 2), 16);
+          g = parseInt(hm[1].slice(2, 4), 16);
+          b = parseInt(hm[1].slice(4, 6), 16);
+        }
+      } catch (_) {
+        /* keep defaults */
+      }
+    }
+    const mix = (c) => Math.round(c * t + 255 * (1 - t));
+    const toHex = (n) => Math.min(255, Math.max(0, n)).toString(16).padStart(2, "0");
+    return `#${toHex(mix(r))}${toHex(mix(g))}${toHex(mix(b))}`;
   }
 
   function stickerPrintMarkup(s) {
@@ -894,6 +1065,8 @@
     const paperBg = cssVar("--paper", "#f8faf7");
     const sage = cssVar("--sage-deep", "#5a8f7f");
     const blush = cssVar("--blush", "#e7a8b2");
+    // Match screen: color-mix(in srgb, var(--blush) 70%, white)
+    const blushSoft = mixCssColorWithWhite(blush, 0.7);
     const lineColor = cssVar("--line-color", "rgba(120,150,140,0.22)");
     const lineGap = cssVar("--line-gap", "1.7rem");
     const lineOffset = cssVar("--line-offset", "2.6rem");
@@ -948,6 +1121,11 @@
     const sheetBgPosition = bgPositions.length ? bgPositions.join(", ") : "0 0";
     const sheetBgRepeat = bgRepeats.length ? bgRepeats.join(", ") : "no-repeat";
 
+    // Path B: PDF page size === 成品页 canvas size (no reflow, no fit-to-A4).
+    const pageWmm = ((stageW * 25.4) / 96).toFixed(3);
+    const pageHmm = ((stageH * 25.4) / 96).toFixed(3);
+    const pageSizeCss = `${pageWmm}mm ${pageHmm}mm`;
+
     const pagesHtml = sheets
       .map((body, i) => {
         const stickersHtml = includeStickers
@@ -958,10 +1136,12 @@
           : "";
         return `
       <section class="sheet" aria-label="第 ${i + 1} 页">
-        <div class="sheet-canvas">
-          <div class="sheet-inner markdown-body preview">${body}</div>
-          ${stickersHtml ? `<div class="sheet-stickers">${stickersHtml}</div>` : ""}
-          <div class="sheet-folio">${i + 1} / ${sheets.length}</div>
+        <div class="sheet-frame">
+          <div class="sheet-canvas">
+            <div class="sheet-inner markdown-body preview">${body}</div>
+            ${stickersHtml ? `<div class="sheet-stickers">${stickersHtml}</div>` : ""}
+            <div class="sheet-folio">${i + 1} / ${sheets.length}</div>
+          </div>
         </div>
       </section>`;
       })
@@ -970,17 +1150,23 @@
     const fileBase =
       (title.replace(/\.md$/i, "").replace(/[\\/:*?"<>|]+/g, "_") || "journal-export") +
       (includeStickers ? "-贴纸" : "");
+    // Absolute lib URLs so blob: print window can still load them.
+    const libBase = new URL("./", window.location.href).href;
 
     return {
       title,
       fileBase,
       paper,
       includeStickers,
+      stageW,
+      stageH,
+      pageWmm: Number(pageWmm),
+      pageHmm: Number(pageHmm),
       html: `<!DOCTYPE html>
 <html lang="zh-CN">
 <head>
   <meta charset="UTF-8" />
-  <title>${escapeHtml(title)} · 打印</title>
+  <title>${escapeHtml(title)} · 导出</title>
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Gaegu:wght@400;700&family=Liu+Jian+Mao+Cao&family=Long+Cang&family=Ma+Shan+Zheng&family=Noto+Sans+SC:wght@400;500;700&family=ZCOOL+XiaoWei&family=Zhi+Mang+Xing&display=swap" rel="stylesheet" />
@@ -994,6 +1180,8 @@
       --font-hand: ${fontHand};
       --stage-w: ${stageW}px;
       --stage-h: ${stageH}px;
+      --page-w-mm: ${pageWmm}mm;
+      --page-h-mm: ${pageHmm}mm;
     }
     * { box-sizing: border-box; }
     body {
@@ -1039,7 +1227,7 @@
       justify-items: center;
       background: #fff;
     }
-    /* Screen: only the 成品页 itself — no mat / gray frame */
+    /* Screen: same canvas as 成品页 (no reflow) */
     .sheet {
       width: var(--stage-w);
       height: var(--stage-h);
@@ -1053,12 +1241,22 @@
       break-after: page;
       page-break-inside: avoid;
       break-inside: avoid;
+      display: flex;
+      align-items: center;
+      justify-content: center;
     }
     .sheet:last-child { page-break-after: auto; break-after: auto; }
+    .sheet-frame {
+      width: var(--stage-w);
+      height: var(--stage-h);
+      flex: 0 0 auto;
+      position: relative;
+      transform-origin: center center;
+    }
     .sheet-canvas {
       position: relative;
-      width: 100%;
-      height: 100%;
+      width: var(--stage-w);
+      height: var(--stage-h);
       background-color: var(--paper);
       background-image: ${sheetBgImage};
       background-size: ${sheetBgSize};
@@ -1126,7 +1324,7 @@
       margin: 1.25rem 0 0.55rem;
       line-height: 1.25;
     }
-    .markdown-body h1 { font-size: 2rem; border-bottom: 2px dashed color-mix(in srgb, var(--blush) 70%, white); padding-bottom: 0.4rem; }
+    .markdown-body h1 { font-size: 2rem; border-bottom: 2px dashed ${blushSoft}; padding-bottom: 0.4rem; }
     .markdown-body h2 { font-size: 1.55rem; }
     .markdown-body h3 { font-size: 1.28rem; }
     .markdown-body table { width: 100%; border-collapse: collapse; margin: 0.6em 0; font-size: 0.95em; }
@@ -1140,12 +1338,14 @@
     .task-item { list-style: none; margin-left: -0.6em; }
     .task-item input { margin-right: 0.4em; }
     .task-item.done .task-text { text-decoration: line-through; opacity: 0.7; }
-    /* Let the printer / system dialog choose paper size */
-    @page { margin: 0; }
+    /* PDF page size = 成品页画布尺寸（与屏幕分页同一套宽高，不重排、不缩进 A4） */
+    @page { size: ${pageSizeCss}; margin: 0; }
     @media print {
       html, body {
         background: var(--paper) !important;
         margin: 0 !important;
+        width: ${stageW}px !important;
+        height: auto !important;
         -webkit-print-color-adjust: exact;
         print-color-adjust: exact;
       }
@@ -1154,16 +1354,18 @@
         padding: 0 !important;
         gap: 0 !important;
         background: var(--paper) !important;
+        width: ${stageW}px !important;
       }
       .sheet {
         box-shadow: none !important;
         border-radius: 0 !important;
-        width: 100% !important;
-        height: 100vh !important;
+        width: ${stageW}px !important;
+        height: ${stageH}px !important;
         max-width: none !important;
         margin: 0 !important;
         background: var(--paper) !important;
-        overflow: hidden;
+        overflow: hidden !important;
+        display: block !important;
         break-after: page;
         page-break-after: always;
       }
@@ -1171,11 +1373,13 @@
         break-after: auto;
         page-break-after: auto;
       }
+      .sheet-frame,
       .sheet-canvas {
-        position: absolute !important;
-        inset: 0 !important;
-        width: 100% !important;
-        height: 100% !important;
+        width: ${stageW}px !important;
+        height: ${stageH}px !important;
+        transform: none !important;
+      }
+      .sheet-canvas {
         background-color: var(--paper) !important;
       }
     }
@@ -1184,20 +1388,31 @@
 <body>
   <div class="toolbar no-print">
     <strong>成品页导出</strong>
-    <span class="hint">${sheets.length} 页 · ${
+    <span class="hint" id="exportHint">${sheets.length} 页 · ${
       includeStickers ? "含贴纸" : "不含贴纸"
-    } · 纸张请在打印对话框里选择，由打印机适配</span>
-    <button type="button" class="primary" onclick="window.print()">打印 / 另存为 PDF</button>
-    <a class="btn" id="dlHtml" href="#" download="${escapeHtml(fileBase)}-打印.html">下载 HTML</a>
+    } · 画布 ${stageW}×${stageH}px（约 ${pageWmm}×${pageHmm}mm）· PDF 请回主界面导出</span>
+    <a class="btn primary" id="dlHtml" href="#" download="${escapeHtml(fileBase)}.html">下载 HTML</a>
+    <button type="button" class="btn" id="btnDoPrint" title="系统打印往往无法使用自定义页面尺寸">系统打印…</button>
     <button type="button" onclick="window.close()">关闭</button>
   </div>
   <div class="pages">${pagesHtml}</div>
   <script>
     (function () {
       var a = document.getElementById("dlHtml");
-      if (!a) return;
-      var blob = new Blob([document.documentElement.outerHTML], { type: "text/html;charset=utf-8" });
-      a.href = URL.createObjectURL(blob);
+      if (a) {
+        var blob = new Blob([document.documentElement.outerHTML], { type: "text/html;charset=utf-8" });
+        a.href = URL.createObjectURL(blob);
+      }
+      function waitFonts() {
+        if (document.fonts && document.fonts.ready) return document.fonts.ready.catch(function () {});
+        return Promise.resolve();
+      }
+      var printBtn = document.getElementById("btnDoPrint");
+      if (printBtn) {
+        printBtn.addEventListener("click", function () {
+          waitFonts().then(function () { window.print(); });
+        });
+      }
     })();
   <\/script>
 </body>
@@ -1233,15 +1448,405 @@
     else exportModal.removeAttribute("open");
   }
 
-  function openExportModal() {
+  async function openExportModal() {
     const n = userStickers.length;
-    setExportStatus(
-      n
-        ? `将按当前成品页原样导出 · ${Math.max(1, pageHtmls.length)} 页 · 贴纸 ${n} 张`
-        : `将按当前成品页原样导出 · ${Math.max(1, pageHtmls.length)} 页`
-    );
+    const pages = Math.max(1, pageHtmls.length);
+    const pdfBtns = [
+      document.getElementById("btnExportWithStickers"),
+      document.getElementById("btnExportPlain"),
+    ].filter(Boolean);
+    const qualityInputs = [...document.querySelectorAll('input[name="pdfQuality"]')];
+
     if (exportModal.showModal) exportModal.showModal();
     else exportModal.setAttribute("open", "open");
+
+    if (demoMode) {
+      pdfBtns.forEach((b) => {
+        b.disabled = true;
+        b.title = "在线 Demo 不提供 PDF，请下载桌面版";
+      });
+      qualityInputs.forEach((el) => {
+        el.disabled = true;
+      });
+      setExportStatus(
+        "在线 Demo 不提供 PDF 导出。可「打开导出页」下载 HTML，或使用桌面版导出 PDF。"
+      );
+      return;
+    }
+
+    pdfBtns.forEach((b) => {
+      b.disabled = false;
+      b.title = "";
+    });
+    qualityInputs.forEach((el) => {
+      el.disabled = false;
+    });
+
+    setExportStatus(n ? `准备导出 · ${pages} 页 · 贴纸 ${n} 张` : `准备导出 · ${pages} 页`);
+    const caps = await probeVectorPdfSupport();
+    const vectorRadio = document.querySelector('input[name="pdfQuality"][value="vector"]');
+    if (vectorRadio) {
+      vectorRadio.disabled = !caps.vector;
+      if (!caps.vector) {
+        const hd = document.querySelector('input[name="pdfQuality"][value="hd"]');
+        if (hd) hd.checked = true;
+        setExportStatus(
+          (n ? `准备导出 · ${pages} 页 · 贴纸 ${n} 张` : `准备导出 · ${pages} 页`) +
+            " · 未检测到 Edge/Chrome，已改用位图"
+        );
+      } else {
+        setExportStatus(
+          (n ? `准备导出 · ${pages} 页 · 贴纸 ${n} 张` : `准备导出 · ${pages} 页`) +
+            " · 可用矢量（无头打印）"
+        );
+      }
+    }
+  }
+
+  function loadScriptOnce(src) {
+    const abs = new URL(src, window.location.href).href;
+    if ([...document.scripts].some((s) => s.src === abs)) {
+      return Promise.resolve();
+    }
+    return new Promise((resolve, reject) => {
+      const s = document.createElement("script");
+      s.src = src;
+      s.onload = () => resolve();
+      s.onerror = () => reject(new Error(`脚本加载失败：${src}`));
+      document.head.appendChild(s);
+    });
+  }
+
+  async function ensurePdfLibs() {
+    if (!window.html2canvas) await loadScriptOnce("html2canvas.min.js");
+    if (!((window.jspdf && window.jspdf.jsPDF) || window.jsPDF)) {
+      await loadScriptOnce("jspdf.umd.min.js");
+    }
+    if (!window.html2canvas) throw new Error("未加载 html2canvas");
+    const jsPDF = (window.jspdf && window.jspdf.jsPDF) || window.jsPDF;
+    if (!jsPDF) throw new Error("未加载 jsPDF");
+    return jsPDF;
+  }
+
+  function cssColorToRgb(value) {
+    if (!value || value === "transparent" || value === "none" || value === "currentcolor") {
+      return value;
+    }
+    if (!/color\(|lab\(|lch\(|oklab\(|oklch\(|color-mix\(/i.test(value)) return value;
+    try {
+      const ctx =
+        cssColorToRgb._ctx || (cssColorToRgb._ctx = document.createElement("canvas").getContext("2d"));
+      ctx.fillStyle = "#000000";
+      ctx.fillStyle = value;
+      return ctx.fillStyle || value;
+    } catch (_) {
+      return value;
+    }
+  }
+
+  function sanitizeCloneColors(clonedDoc) {
+    const win = clonedDoc.defaultView || window;
+    const props = [
+      "color",
+      "backgroundColor",
+      "borderTopColor",
+      "borderRightColor",
+      "borderBottomColor",
+      "borderLeftColor",
+      "outlineColor",
+      "textDecorationColor",
+      "columnRuleColor",
+      "caretColor",
+    ];
+    const cssProps = [
+      "color",
+      "background-color",
+      "border-top-color",
+      "border-right-color",
+      "border-bottom-color",
+      "border-left-color",
+      "outline-color",
+      "text-decoration-color",
+      "column-rule-color",
+      "caret-color",
+    ];
+    clonedDoc.querySelectorAll("*").forEach((el) => {
+      let cs;
+      try {
+        cs = win.getComputedStyle(el);
+      } catch (_) {
+        return;
+      }
+      props.forEach((prop, i) => {
+        const raw = cs[prop];
+        const fixed = cssColorToRgb(raw);
+        if (fixed && fixed !== raw) el.style.setProperty(cssProps[i], fixed, "important");
+      });
+    });
+  }
+
+  function buildCaptureHtml(fullHtml) {
+    // Capture in a same-origin iframe; drop export-page scripts (libs live in the app).
+    return String(fullHtml || "").replace(/<script\b[\s\S]*?<\/script>/gi, "");
+  }
+
+  function triggerBlobDownload(blob, filename) {
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = filename;
+    a.rel = "noopener";
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 60_000);
+  }
+
+  /** PDF quality: vector (headless Chromium) or raster fallbacks. */
+  function getPdfQualityPreset() {
+    const picked =
+      document.querySelector('input[name="pdfQuality"]:checked')?.value || "vector";
+    if (picked === "standard") {
+      return {
+        id: "standard",
+        scaleCap: 2,
+        mime: "image/jpeg",
+        imageType: "JPEG",
+        jpegQuality: 0.93,
+        compress: "MEDIUM",
+        label: "标准位图",
+      };
+    }
+    if (picked === "hd") {
+      return {
+        id: "hd",
+        scaleCap: 3,
+        mime: "image/png",
+        imageType: "PNG",
+        jpegQuality: undefined,
+        compress: "NONE",
+        label: "高清位图",
+      };
+    }
+    return {
+      id: "vector",
+      label: "矢量",
+    };
+  }
+
+  async function probeVectorPdfSupport() {
+    if (demoMode) return { vector: false, browser: null };
+    try {
+      const res = await fetch("/api/export-pdf/capabilities", { cache: "no-store" });
+      if (!res.ok) return { vector: false, browser: null };
+      return await res.json();
+    } catch (_) {
+      return { vector: false, browser: null };
+    }
+  }
+
+  async function exportPdfVector({ doc, filename, fileHandle }) {
+    setExportStatus("正在无头矢量打印（Edge/Chrome）…");
+    setStatus("正在无头矢量打印…");
+    const res = await fetch("/api/export-pdf", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ html: doc.html, filename }),
+    });
+    if (!res.ok) {
+      let msg = `HTTP ${res.status}`;
+      try {
+        const data = await res.json();
+        if (data && data.error) msg = data.error;
+      } catch (_) {
+        /* ignore */
+      }
+      throw new Error(msg);
+    }
+    const blob = await res.blob();
+    if (!blob || blob.size < 64) throw new Error("矢量 PDF 为空");
+    if (fileHandle) {
+      const writable = await fileHandle.createWritable();
+      await writable.write(blob);
+      await writable.close();
+    } else {
+      triggerBlobDownload(blob, filename);
+    }
+    const msg = `已保存矢量 PDF · ${Math.max(1, pageHtmls.length)} 页 · ${doc.stageW}×${doc.stageH}px（约 ${doc.pageWmm}×${doc.pageHmm}mm）· ${(
+      blob.size / 1024
+    ).toFixed(0)} KB`;
+    setExportStatus(msg);
+    setStatus(msg);
+  }
+
+  function pdfCaptureScale(scaleCap) {
+    const dpr = Number(window.devicePixelRatio) || 1;
+    const cap = Math.max(1, Number(scaleCap) || 2);
+    return Math.min(cap, Math.max(2, dpr * 2));
+  }
+
+  function canvasToPdfImage(canvas, preset) {
+    if (preset.imageType === "JPEG") {
+      return canvas.toDataURL("image/jpeg", preset.jpegQuality ?? 0.92);
+    }
+    return canvas.toDataURL("image/png");
+  }
+
+  async function exportPdfDirect({ includeStickers = false } = {}) {
+    if (demoMode) {
+      setExportStatus("在线 Demo 不提供 PDF 导出，请下载桌面版。", true);
+      alert("在线 Demo 不提供 PDF 导出，请下载桌面版。");
+      return;
+    }
+    const btns = [
+      document.getElementById("btnExportWithStickers"),
+      document.getElementById("btnExportPlain"),
+      document.getElementById("btnExportOpenPage"),
+    ].filter(Boolean);
+    btns.forEach((b) => {
+      b.disabled = true;
+    });
+    let host = null;
+    let fileHandle = null;
+    try {
+      const quality = getPdfQualityPreset();
+      setExportStatus(`正在准备${quality.label} PDF…`);
+      const html = buildPreviewHtml(editor.value);
+      latestPreviewHtml = html;
+      paginateHtml(html);
+      const doc = buildPrintableDocument({ includeStickers });
+      const filename = `${doc.fileBase}.pdf`;
+      const stageW = doc.stageW;
+      const stageH = doc.stageH;
+      const pageWmm = doc.pageWmm;
+      const pageHmm = doc.pageHmm;
+
+      // Ask for save path immediately (user-gesture window) before long render.
+      if (window.showSaveFilePicker) {
+        try {
+          fileHandle = await window.showSaveFilePicker({
+            suggestedName: filename,
+            types: [
+              {
+                description: "PDF",
+                accept: { "application/pdf": [".pdf"] },
+              },
+            ],
+          });
+        } catch (err) {
+          if (err && err.name === "AbortError") {
+            setExportStatus("已取消保存");
+            setStatus("已取消 PDF 保存");
+            return;
+          }
+          fileHandle = null;
+        }
+      }
+
+      if (quality.id === "vector") {
+        if (demoMode) {
+          throw new Error("网页 Demo 不支持矢量导出，请改用「高清位图」或本地程序");
+        }
+        const caps = await probeVectorPdfSupport();
+        if (!caps.vector) {
+          throw new Error(
+            "未检测到 Edge/Chrome，无法矢量导出。请安装 Edge，或改选「高清位图」"
+          );
+        }
+        await exportPdfVector({ doc, filename, fileHandle });
+        closeExportModal();
+        return;
+      }
+
+      const jsPDF = await ensurePdfLibs();
+      host = document.createElement("div");
+      host.id = "pdf-capture-host";
+      host.setAttribute("aria-hidden", "true");
+      host.style.cssText =
+        "position:fixed;left:-14000px;top:0;width:0;height:0;overflow:hidden;pointer-events:none;opacity:0;";
+      const iframe = document.createElement("iframe");
+      iframe.setAttribute("title", "pdf-capture");
+      iframe.style.cssText = `width:${stageW}px;height:${Math.max(stageH, 400)}px;border:0;background:#fff;`;
+      host.appendChild(iframe);
+      document.body.appendChild(host);
+
+      const idoc = iframe.contentDocument;
+      if (!idoc) throw new Error("无法创建导出画布");
+      idoc.open();
+      idoc.write(buildCaptureHtml(doc.html));
+      idoc.close();
+
+      if (idoc.fonts && idoc.fonts.ready) {
+        await idoc.fonts.ready.catch(() => {});
+      }
+      await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
+
+      const frames = Array.prototype.slice.call(idoc.querySelectorAll(".sheet-frame"));
+      if (!frames.length) throw new Error("没有可导出的页面");
+
+      const scale = pdfCaptureScale(quality.scaleCap);
+      const orient = stageW >= stageH ? "l" : "p";
+      const pdf = new jsPDF({
+        orientation: orient,
+        unit: "mm",
+        format: [pageWmm, pageHmm],
+        compress: true,
+      });
+
+      for (let i = 0; i < frames.length; i++) {
+        setExportStatus(`正在生成${quality.label} PDF… ${i + 1} / ${frames.length}`);
+        setStatus(`正在生成${quality.label} PDF… ${i + 1} / ${frames.length}`);
+        iframe.style.height = `${stageH}px`;
+        const canvas = await window.html2canvas(frames[i], {
+          scale,
+          useCORS: true,
+          allowTaint: true,
+          backgroundColor: "#ffffff",
+          width: stageW,
+          height: stageH,
+          windowWidth: stageW,
+          windowHeight: stageH,
+          onclone: (clonedDoc) => sanitizeCloneColors(clonedDoc),
+        });
+        const img = canvasToPdfImage(canvas, quality);
+        if (i > 0) pdf.addPage([pageWmm, pageHmm], orient);
+        pdf.addImage(img, quality.imageType, 0, 0, pageWmm, pageHmm, undefined, quality.compress);
+        canvas.width = 0;
+        canvas.height = 0;
+      }
+
+      const blob = pdf.output("blob");
+      if (fileHandle) {
+        const writable = await fileHandle.createWritable();
+        await writable.write(blob);
+        await writable.close();
+      } else {
+        triggerBlobDownload(blob, filename);
+      }
+
+      const msg = `已保存${quality.label} PDF · ${frames.length} 页 · 截图 ${Math.round(stageW * scale)}×${Math.round(
+        stageH * scale
+      )}px（版式仍为 ${stageW}×${stageH}）`;
+      setExportStatus(msg);
+      setStatus(msg);
+      closeExportModal();
+    } catch (err) {
+      console.error(err);
+      if (err && err.name === "AbortError") {
+        setExportStatus("已取消保存");
+        setStatus("已取消 PDF 保存");
+        return;
+      }
+      const msg = `PDF 生成失败：${err && err.message ? err.message : err}`;
+      setExportStatus(msg, true);
+      setStatus(msg);
+      alert(msg);
+    } finally {
+      if (host) host.remove();
+      btns.forEach((b) => {
+        b.disabled = false;
+      });
+    }
   }
 
   function exportPrintable({ includeStickers = false } = {}) {
@@ -1267,9 +1872,9 @@
       }
       setTimeout(() => URL.revokeObjectURL(url), 120_000);
       setStatus(
-        `已打开打印页（${pageHtmls.length} 页 · ${
+        `已打开导出页（${pageHtmls.length} 页 · ${
           includeStickers ? "含贴纸" : "不含贴纸"
-        } · 纸张在打印对话框中选择）`
+        } · 可下载 HTML / 系统打印；PDF 请用主界面「下载 PDF」）`
       );
       closeExportModal();
     } catch (err) {
@@ -1392,20 +1997,33 @@
     const p = paper || {};
     const lines = p.lines || {};
     const margin = p.marginLine || {};
-    const size = p.size || "full";
-    const fixed = ["a4", "a5", "b6", "square"].includes(size);
-    body.dataset.paperSize = size;
-    body.dataset.paperFixed = fixed ? "1" : "0";
+    const geo = resolvePaperGeometry(p);
+
+    body.dataset.paperSize = geo.size;
+    body.dataset.paperFixed = geo.fixed ? "1" : "0";
+    body.dataset.paperOrient = geo.orient;
+    if (geo.custom) body.dataset.paperAspect = String(p.aspect).trim();
+    else body.removeAttribute("data-paper-aspect");
     body.dataset.lines = lines.enabled === false ? "off" : "on";
     body.dataset.lineStyle = lines.style || "solid";
     body.dataset.margin = margin.enabled === false ? "off" : "on";
 
-    // Editor/files keep minHeight; fixed ISO preview pages use aspect-ratio + page-max-h.
     root.style.setProperty("--paper-min-h", p.minHeight || "62vh");
-    if (fixed) {
-      root.style.setProperty("--page-max-h", "min(78vh, 900px)");
+    // Aspect vars must live on body: CSS presets also set them on body[data-paper-size].
+    if (geo.fixed) {
+      body.style.setProperty("--page-aspect", geo.aspectCss);
+      body.style.setProperty(
+        "--paper-pane-max",
+        geo.paneMax && geo.paneMax !== "none" ? geo.paneMax : "42rem"
+      );
+      body.style.setProperty(
+        "--page-max-h",
+        geo.landscape ? "min(70vh, 720px)" : "min(78vh, 900px)"
+      );
     } else {
-      root.style.removeProperty("--page-max-h");
+      body.style.removeProperty("--page-aspect");
+      body.style.removeProperty("--paper-pane-max");
+      body.style.removeProperty("--page-max-h");
     }
     root.style.setProperty("--paper-radius", p.radius || "22px");
     if (p.shadow) root.style.setProperty("--paper-shadow", p.shadow);
@@ -1750,9 +2368,12 @@
     rail?.classList.add("pulse");
     setTimeout(() => rail?.classList.remove("pulse"), 700);
     const bits = [];
-    if (theme.paper?.size) bits.push(`预览纸面 ${theme.paper.size}`);
+    const geo = resolvePaperGeometry(theme.paper || {});
+    if (geo.chip) bits.push(geo.chip);
     if (theme.paper?.lines?.style) bits.push(`${theme.paper.lines.style} 线`);
-    setStatus(`已切换皮肤：${theme.name}${bits.length ? " · " + bits.join(" · ") : ""} · 超出翻页`);
+    setStatus(
+      `已切换皮肤：${theme.name}${bits.length ? " · " + bits.join(" · ") : ""} · 超出翻页（比例≠打印机纸型）`
+    );
   }
 
   function paintThemes() {
@@ -1764,10 +2385,11 @@
       btn.type = "button";
       btn.className = "theme-chip";
       btn.dataset.theme = theme.id;
-      btn.title = theme.desc || theme.name;
+      const geo = resolvePaperGeometry(theme.paper || {});
+      btn.title = [theme.desc || theme.name, geo.hint].filter(Boolean).join(" · ");
       const swatch = theme.colors?.sage || theme.colors?.sageDeep || "#7fafa0";
       const meta = [
-        theme.paper?.size,
+        geo.chip,
         theme.paper?.lines?.enabled === false ? "素纸" : theme.paper?.lines?.style,
       ]
         .filter(Boolean)
@@ -2429,7 +3051,7 @@
     rail?.classList.add("pulse");
     rail?.scrollIntoView({ behavior: "smooth", block: "center" });
     setTimeout(() => rail?.classList.remove("pulse"), 1200);
-    setStatus("点皮肤可换纸张大小、横线与框架");
+    setStatus("点皮肤可换预览比例、横线与框架（JSON 可设横页/自定义比；a4/a5≠打印机纸型）");
   });
   document.getElementById("btnStickers")?.addEventListener("click", () => {
     stickerRail?.classList.add("pulse");
@@ -2446,10 +3068,13 @@
   document.getElementById("btnExportPrint")?.addEventListener("click", openExportModal);
   document.getElementById("btnExportClose")?.addEventListener("click", closeExportModal);
   document.getElementById("btnExportWithStickers")?.addEventListener("click", () =>
-    exportPrintable({ includeStickers: true })
+    exportPdfDirect({ includeStickers: true })
   );
   document.getElementById("btnExportPlain")?.addEventListener("click", () =>
-    exportPrintable({ includeStickers: false })
+    exportPdfDirect({ includeStickers: false })
+  );
+  document.getElementById("btnExportOpenPage")?.addEventListener("click", () =>
+    exportPrintable({ includeStickers: true })
   );
   exportModal?.addEventListener("click", (e) => {
     if (e.target === exportModal) closeExportModal();

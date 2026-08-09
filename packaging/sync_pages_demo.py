@@ -13,6 +13,8 @@ FILES = (
     "app.js",
     "styles.css",
     "marked.min.js",
+    "html2canvas.min.js",
+    "jspdf.umd.min.js",
 )
 DIRS = (
     "skins",

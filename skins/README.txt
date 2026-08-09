@@ -3,17 +3,27 @@
 
 皮肤可以设计：
 1) 配色 colors + 桌面氛围 deskWash
-2) 纸张大小 / 圆角 / 高度 paper（作用于预览「成品页」纸面）
+2) 预览比例 / 横竖 / 自定义比 / 圆角 / 高度 paper
 3) 横线样式与间距 paper.lines
 4) 左侧红线（手账边线）paper.marginLine
 5) 框架布局 layout（侧栏宽、螺旋圈、胶带、花瓣）
 6) stickers：皮肤自带的小装饰 emoji（可选，界面可关）
 
-纸张与翻页：
-- paper.size = a4 / a5 / b6 / square 时，预览纸面按 ISO 比例显示
+预览比例与翻页（重要）：
+- paper.size = a4 / a5 / b6 / square 时，预览按对应 ISO **长宽比**显示
+- 名称沿用 a4/a5 只为好记；**不等于**打印机托盘里的 A4/A5 物理纸张
+- 导出 PDF 按屏幕上成品页画布像素折算 mm，随窗口与布局变化
 - 内容超出一页时，在预览底部「上一页 / 下一页」翻页（仅 UI，不改 md 文件）
 - 编辑区（草稿纸）仍连续滚动，不分页
 - full / wide：预览铺满工作区，仍可按高度分页翻页
+
+横页与自定义比例（写在皮肤 JSON，无界面快捷开关）：
+- paper.orientation = "portrait"（默认）| "landscape"
+  → 在 a4/a5/b6 上对调宽高比（square 不变）
+- paper.aspect = "16 / 9" 或 "3/2" 或 "1.414"
+  → 自定义 CSS 长宽比；**优先于** size + orientation
+  → 一旦设置 aspect，预览变为固定比例页（即使 size 是 full/wide）
+- 芯片文案：竖页「A5比例」、横页「A5横」、自定义「自定义比」
 
 注意：能写文字、选形状的「用户贴纸」是编辑器里的功能，
 不写在皮肤 JSON 里；按每个 md 页面保存在浏览器本地。
@@ -41,6 +51,8 @@
   "deskWash": "linear-gradient(...)",
   "paper": {
     "size": "a5",
+    "orientation": "landscape",
+    "aspect": "16 / 9",
     "minHeight": "68vh",
     "radius": "18px",
     "shadow": "0 12px 30px rgba(70,95,85,0.12)",
@@ -71,6 +83,9 @@
 }
 
 paper.size: full | wide | a4 | a5 | b6 | square
-  a4 ≈ 210×297 比例 · a5 ≈ 148×210 · b6 ≈ 125×176 · square = 1:1
+  → 界面显示为「A4比例 / A5比例 …」；只定预览长宽比
+  a4 ≈ 210:297 · a5 ≈ 148:210 · b6 ≈ 125:176 · square = 1:1
+paper.orientation: portrait | landscape（可选）
+paper.aspect: "宽 / 高" 或小数（可选，优先）
 paper.lines.style: solid | dashed | dotted | grid | none
 stickers 最多 24 个；位置用 top/left/right/bottom（如 "8%"）

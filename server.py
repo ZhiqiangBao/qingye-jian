@@ -10,14 +10,19 @@ from __future__ import annotations
 
 import json
 import mimetypes
+import os
 import re
 import shutil
+import subprocess
 import sys
+import tempfile
+import uuid
 import webbrowser
 from datetime import datetime
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
-from urllib.parse import parse_qs, unquote, urlparse
+from shutil import which
+from urllib.parse import parse_qs, quote, unquote, urlparse
 
 
 def is_frozen() -> bool:
@@ -48,7 +53,14 @@ DEFAULT_HELP_DOC = "编辑技巧.md"
 HOST = "127.0.0.1"
 PORT = 8765
 SEED_DIRS = ("templates", "skins", "help", "document")
-SEED_FILES = ("index.html", "app.js", "styles.css", "marked.min.js")
+SEED_FILES = (
+    "index.html",
+    "app.js",
+    "styles.css",
+    "marked.min.js",
+    "html2canvas.min.js",
+    "jspdf.umd.min.js",
+)
 
 SAFE_FILE = re.compile(r"^[^\\/:*?\"<>|\r\n]+$", re.IGNORECASE)
 SAFE_SKIN_ID = re.compile(r"^[a-zA-Z0-9][a-zA-Z0-9_-]{0,63}$")
@@ -541,6 +553,144 @@ def browse(rel: str = "") -> dict:
     }
 
 
+def find_chromium_browser() -> Path | None:
+    """Prefer Edge/Chrome for headless print-to-PDF (vector text + @page size)."""
+    env = os.environ.get("QINGYE_BROWSER") or os.environ.get("CHROME_PATH")
+    if env:
+        p = Path(env)
+        if p.is_file():
+            return p
+    candidates = [
+        Path(r"C:\Program Files\Microsoft\Edge\Application\msedge.exe"),
+        Path(r"C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe"),
+        Path(os.environ.get("PROGRAMFILES", r"C:\Program Files"))
+        / "Google"
+        / "Chrome"
+        / "Application"
+        / "chrome.exe",
+        Path(os.environ.get("PROGRAMFILES(X86)", r"C:\Program Files (x86)"))
+        / "Google"
+        / "Chrome"
+        / "Application"
+        / "chrome.exe",
+        Path(os.environ.get("LOCALAPPDATA", ""))
+        / "Google"
+        / "Chrome"
+        / "Application"
+        / "chrome.exe",
+        Path("/usr/bin/google-chrome"),
+        Path("/usr/bin/chromium"),
+        Path("/usr/bin/chromium-browser"),
+        Path("/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"),
+        Path("/Applications/Microsoft Edge.app/Contents/MacOS/Microsoft Edge"),
+    ]
+    for path in candidates:
+        if path.is_file():
+            return path
+    for name in ("msedge", "chrome", "google-chrome", "chromium", "chromium-browser"):
+        found = which(name)
+        if found:
+            return Path(found)
+    return None
+
+
+def prepare_vector_print_html(html: str) -> str:
+    """Strip export scripts and force print-like layout for headless capture."""
+    text = re.sub(r"<script\b[\s\S]*?</script>", "", html, flags=re.IGNORECASE)
+    inject = """
+<style id="qingye-vector-print">
+  .toolbar, .no-print { display: none !important; }
+  html, body {
+    margin: 0 !important;
+    background: var(--paper, #fff) !important;
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
+  }
+  .pages {
+    padding: 0 !important;
+    gap: 0 !important;
+    background: var(--paper, #fff) !important;
+  }
+  .sheet {
+    box-shadow: none !important;
+    border-radius: 0 !important;
+    margin: 0 !important;
+    max-width: none !important;
+    page-break-after: always;
+    break-after: page;
+  }
+  .sheet:last-child {
+    page-break-after: auto;
+    break-after: auto;
+  }
+</style>
+"""
+    if "</head>" in text:
+        return text.replace("</head>", inject + "</head>", 1)
+    return inject + text
+
+
+def render_html_to_pdf(html: str) -> bytes:
+    """Render export HTML to PDF via headless Chromium (respects CSS @page size)."""
+    browser = find_chromium_browser()
+    if browser is None:
+        raise RuntimeError(
+            "未找到 Edge/Chrome。请安装 Microsoft Edge，或设置环境变量 QINGYE_BROWSER 指向浏览器可执行文件。"
+        )
+
+    token = uuid.uuid4().hex
+    html_name = f"__export_{token}.html"
+    html_path = APP_ROOT / html_name
+    pdf_path = Path(tempfile.gettempdir()) / f"qingye_export_{token}.pdf"
+    url = f"http://{HOST}:{PORT}/{html_name}"
+
+    try:
+        html_path.write_text(prepare_vector_print_html(html), encoding="utf-8")
+        if pdf_path.exists():
+            pdf_path.unlink()
+
+        common = [
+            "--disable-gpu",
+            "--disable-extensions",
+            "--no-first-run",
+            "--no-default-browser-check",
+            "--no-pdf-header-footer",
+            f"--print-to-pdf={str(pdf_path)}",
+            "--virtual-time-budget=25000",
+            url,
+        ]
+        last_err = ""
+        for headless in ("--headless=new", "--headless"):
+            cmd = [str(browser), headless, *common]
+            kwargs: dict = {
+                "capture_output": True,
+                "timeout": 180,
+            }
+            if sys.platform == "win32":
+                kwargs["creationflags"] = getattr(subprocess, "CREATE_NO_WINDOW", 0)
+            try:
+                proc = subprocess.run(cmd, **kwargs)
+            except subprocess.TimeoutExpired as exc:
+                last_err = f"超时: {exc}"
+                continue
+            if pdf_path.is_file() and pdf_path.stat().st_size > 64:
+                return pdf_path.read_bytes()
+            stderr = (proc.stderr or b"").decode("utf-8", "replace").strip()
+            stdout = (proc.stdout or b"").decode("utf-8", "replace").strip()
+            last_err = f"exit={proc.returncode}; {stderr or stdout}"[:900]
+
+        raise RuntimeError(f"无头打印未生成 PDF。{last_err}")
+    finally:
+        try:
+            html_path.unlink(missing_ok=True)
+        except Exception:
+            pass
+        try:
+            pdf_path.unlink(missing_ok=True)
+        except Exception:
+            pass
+
+
 def unique_md_path(rel_dir: str, filename: str) -> Path:
     if not filename.lower().endswith(".md"):
         filename += ".md"
@@ -600,6 +750,17 @@ class Handler(BaseHTTPRequestHandler):
                     "templates": str(TEMPLATES_DIR),
                     "skins": str(SKINS_DIR),
                     "suggestions": workspace_suggestions(),
+                },
+            )
+            return
+
+        if path == "/api/export-pdf/capabilities":
+            browser = find_chromium_browser()
+            self._send_json(
+                200,
+                {
+                    "vector": bool(browser),
+                    "browser": str(browser) if browser else None,
                 },
             )
             return
@@ -861,6 +1022,35 @@ class Handler(BaseHTTPRequestHandler):
             import threading
 
             threading.Thread(target=_stop, daemon=True).start()
+            return
+
+        if parsed.path == "/api/export-pdf":
+            html = payload.get("html")
+            if not isinstance(html, str) or len(html.strip()) < 32:
+                self._send_json(400, {"error": "html 无效"})
+                return
+            if len(html) > 25_000_000:
+                self._send_json(400, {"error": "导出内容过大"})
+                return
+            raw_name = str(payload.get("filename") or "青叶笺.pdf")
+            safe_name = re.sub(r'[\\/:*?"<>|\r\n]+', "_", raw_name).strip() or "青叶笺.pdf"
+            if not safe_name.lower().endswith(".pdf"):
+                safe_name += ".pdf"
+            try:
+                pdf = render_html_to_pdf(html)
+            except Exception as exc:
+                self._send_json(500, {"error": str(exc)})
+                return
+            self.send_response(200)
+            self.send_header("Content-Type", "application/pdf")
+            self.send_header("Content-Length", str(len(pdf)))
+            self.send_header(
+                "Content-Disposition",
+                f"attachment; filename=\"export.pdf\"; filename*=UTF-8''{quote(safe_name)}",
+            )
+            self.send_header("Cache-Control", "no-store")
+            self.end_headers()
+            self.wfile.write(pdf)
             return
 
         if parsed.path == "/api/skins/import":

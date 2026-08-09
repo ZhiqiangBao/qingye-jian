@@ -14,8 +14,15 @@ RELEASE = APP_ROOT / "release" / "qingye-jian"
 EXE_NAME = "QingyeJian"
 ICON = PACK / "qingye-jian.ico"
 
-ASSET_FILES = ("index.html", "app.js", "styles.css", "marked.min.js")
-ASSET_DIRS = ("templates", "skins", "help", "document")
+ASSET_FILES = (
+    "index.html",
+    "app.js",
+    "styles.css",
+    "marked.min.js",
+    "html2canvas.min.js",
+    "jspdf.umd.min.js",
+)
+ASSET_DIRS = ("templates", "skins", "help", "document", "licenses")
 
 
 def run(cmd: list[str]) -> None:
@@ -121,11 +128,16 @@ def main() -> None:
         "双击「青叶笺.exe」即可启动（无黑色终端窗口）。\n"
         "浏览器会自动打开编辑器；关闭浏览器标签页不会退出后台。\n"
         "用完请点界面顶部「退出」，关闭本地服务。\n\n"
+        "导出 PDF：\n"
+        "- 推荐「矢量」：需本机已安装 Microsoft Edge 或 Google Chrome。\n"
+        "- 若未安装浏览器，可改用「高清/标准位图」。\n"
+        "- 在线 GitHub Demo 不提供 PDF，请用本桌面版。\n\n"
         "文件夹说明：\n"
         "- document/   默认笔记内容\n"
         "- templates/  计划模板\n"
         "- skins/      手账皮肤\n"
-        "- help/       编辑技巧（界面内「帮助」也可打开）\n",
+        "- help/       编辑技巧（界面内「帮助」也可打开）\n"
+        "- licenses/   字体与第三方开源许可说明\n",
         encoding="utf-8",
     )
 

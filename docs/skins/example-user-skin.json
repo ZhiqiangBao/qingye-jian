@@ -2,7 +2,7 @@
   "id": "example-user-skin",
   "name": "示例自订",
   "stamp": "自订",
-  "desc": "示范：自定义纸张尺寸、横线、贴纸",
+  "desc": "示范：A5 横页比例、横线、贴纸（orientation 可改；也可用 aspect 自定义）",
   "preset": false,
   "colors": {
     "ink": "#40383d",
@@ -17,6 +17,7 @@
   "deskWash": "radial-gradient(800px 420px at 12% 0%, rgba(231, 176, 207, 0.4), transparent 60%), radial-gradient(700px 380px at 90% 12%, rgba(240, 212, 228, 0.35), transparent 55%), linear-gradient(165deg, #f9eef4 0%, #fbf5f8 45%, #f3e8ef 100%)",
   "paper": {
     "size": "a5",
+    "orientation": "landscape",
     "minHeight": "65vh",
     "radius": "22px",
     "lines": {

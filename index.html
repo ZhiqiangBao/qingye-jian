@@ -9,6 +9,8 @@
   <link href="https://fonts.googleapis.com/css2?family=Gaegu:wght@400;700&family=Liu+Jian+Mao+Cao&family=Long+Cang&family=Ma+Shan+Zheng&family=Noto+Sans+SC:wght@400;500;700&family=ZCOOL+XiaoWei&family=Zhi+Mang+Xing&display=swap" rel="stylesheet" />
   <link rel="stylesheet" href="styles.css" />
   <script defer src="marked.min.js"></script>
+  <script defer src="html2canvas.min.js"></script>
+  <script defer src="jspdf.umd.min.js"></script>
   <script defer src="app.js"></script>
 </head>
 <body data-theme="qingye">
@@ -67,7 +69,7 @@
     </header>
 
     <section class="theme-rail" id="themeRail" aria-label="手账皮肤">
-      <div class="theme-rail-label">手账皮肤（纸张尺寸作用于预览纸面 · 超出翻页）</div>
+      <div class="theme-rail-label">手账皮肤（预览比例 · JSON 可设横页/自定义比 · ≠打印机纸型）</div>
       <div class="theme-chips" id="themeChips"></div>
     </section>
 
@@ -207,8 +209,8 @@
         <div>
           <h2 class="modal-title">导入皮肤</h2>
           <p class="modal-desc">
-            粘贴皮肤 JSON，或选择 <code>.json</code> 文件。可设计纸张大小、横线、边线、装饰。
-            说明见程序目录 <code>skins/README.txt</code>。
+            粘贴皮肤 JSON，或选择 <code>.json</code> 文件。可设计预览比例、横线、边线、装饰。
+            <code>paper.size</code>（a4/a5…）只表示<strong>预览长宽比</strong>；可用 <code>orientation: "landscape"</code> 横页，或 <code>aspect: "16 / 9"</code> 自定义比（优先）。≠打印机纸型；导出 PDF 按屏幕成品页。说明见 <code>skins/README.txt</code>。
           </p>
         </div>
         <button type="button" class="btn soft" id="btnSkinClose">关闭</button>
@@ -239,11 +241,17 @@
         <button type="button" class="btn soft" id="btnExportClose">关闭</button>
       </div>
       <p class="modal-status" id="exportStatus"></p>
-      <div class="import-row export-actions">
-        <button type="button" class="btn primary" id="btnExportWithStickers">带贴纸导出</button>
-        <button type="button" class="btn soft" id="btnExportPlain">不带贴纸导出</button>
+      <div class="import-row export-quality" role="group" aria-label="PDF 清晰度">
+        <label class="chip-check"><input type="radio" name="pdfQuality" value="vector" checked /> 矢量（推荐，清晰且较小）</label>
+        <label class="chip-check"><input type="radio" name="pdfQuality" value="hd" /> 高清位图</label>
+        <label class="chip-check"><input type="radio" name="pdfQuality" value="standard" /> 标准位图</label>
       </div>
-      <p class="modal-foot">将打开打印页，可「另存为 PDF」或下载 HTML。</p>
+      <div class="import-row export-actions">
+        <button type="button" class="btn primary" id="btnExportWithStickers">下载 PDF · 含贴纸</button>
+        <button type="button" class="btn soft" id="btnExportPlain">下载 PDF · 不含贴纸</button>
+        <button type="button" class="btn soft" id="btnExportOpenPage">打开导出页…</button>
+      </div>
+      <p class="modal-foot">矢量：本机 Edge/Chrome 无头打印；页面尺寸=屏幕成品页（不是皮肤名里的 A4/A5 打印纸）。「打开导出页」仅 HTML / 系统打印。</p>
     </div>
   </dialog>
 
