@@ -85,12 +85,6 @@ qingye-jian/
 python packaging/build_release.py
 ```
 
-## Git 规则
-
-- 根目录私人 `.md` 不提交（除本 README）
-- `document/`、`templates/`、`help/` 等可提交
-- `workspace.json`、`dist/`、`build/`、`release/` 不提交
-
 ---
 
 <div align="center">
