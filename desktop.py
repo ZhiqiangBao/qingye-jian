@@ -29,11 +29,30 @@ from http.server import ThreadingHTTPServer
 from pathlib import Path
 
 # 以本文件所在目录为应用根目录，确保 server.py 的 APP_ROOT 指向这里
-APP_DIR = Path(__file__).resolve().parent
+# PyInstaller onefile 模式：静态资源在 _MEIPASS，用户数据在 exe 所在目录
+if getattr(sys, "frozen", False):
+    _MEIPASS = Path(sys._MEIPASS)
+    APP_DIR = Path(sys.executable).resolve().parent
+    _STATIC_FILES = [
+        "index.html", "styles.css", "app.js",
+        "marked.min.js", "html2canvas.min.js", "jspdf.umd.min.js",
+    ]
+    import shutil
+    for _f in _STATIC_FILES:
+        _src = _MEIPASS / _f
+        _dst = APP_DIR / _f
+        if _src.exists() and not _dst.exists():
+            shutil.copy2(_src, _dst)
+else:
+    APP_DIR = Path(__file__).resolve().parent
 sys.path.insert(0, str(APP_DIR))
 
 import server as qy  # noqa: E402  复用现有 server.py
 import webview  # noqa: E402
+
+# 打包模式下让 server.py 的 APP_ROOT 指向 exe 所在目录（含用户数据）
+if getattr(sys, "frozen", False):
+    qy.APP_ROOT = APP_DIR
 
 HOST = qy.HOST  # "127.0.0.1"
 PORT = qy.PORT  # 8765（首选端口，被占用时自动递增）
@@ -102,9 +121,20 @@ qy.pick_workspace_folder = _patched_pick_workspace_folder
 class JsApi:
     def __init__(self) -> None:
         self._window = None
+        self._min_w = 320
+        self._min_h = 240
+        self._title = "青叶笺 · 学习计划"
 
     def _bind(self, window) -> None:
         self._window = window
+
+    def _hwnd(self) -> int:
+        """拿底层 Win32 窗口句柄（frameless 窗口仍有标题，FindWindow 可找）。"""
+        try:
+            import ctypes
+            return ctypes.windll.user32.FindWindowW(None, self._title) or 0
+        except Exception:
+            return 0
 
     def close_window(self) -> bool:
         """由注入的 JS 调用：关闭原生窗口（同时触发 closed 事件停服务）。"""
@@ -115,17 +145,159 @@ class JsApi:
                 pass
         return True
 
+    def minimize_window(self) -> bool:
+        """最小化窗口。"""
+        try:
+            import ctypes
+            hwnd = self._hwnd()
+            if hwnd:
+                ctypes.windll.user32.ShowWindow(hwnd, 6)  # SW_MINIMIZE
+        except Exception:
+            pass
+        return True
 
-# 覆盖 window.close，使其转调 pywebview 桥
-_CLOSE_JS = (
-    "(function(){"
-    "if(window.__qyClosePatched)return;"
-    "window.__qyClosePatched=true;"
-    "window.close=function(){"
-    "try{window.pywebview.api.close_window();}catch(e){}"
-    "};"
-    "})();"
-)
+    def toggle_maximize(self) -> bool:
+        """最大化/还原切换（pywebview 无原生 maximize，用 Win32 API）。"""
+        try:
+            import ctypes
+            hwnd = self._hwnd()
+            if hwnd:
+                if ctypes.windll.user32.IsZoomed(hwnd):
+                    ctypes.windll.user32.ShowWindow(hwnd, 9)  # SW_RESTORE
+                else:
+                    ctypes.windll.user32.ShowWindow(hwnd, 3)  # SW_MAXIMIZE
+        except Exception:
+            pass
+        return True
+
+    def resize_window(self, delta_w: int = 0, delta_h: int = 0) -> bool:
+        """Ctrl+滚轮调用：按增量调整窗口尺寸，限制最小值与屏幕工作区。"""
+        try:
+            import ctypes
+            from ctypes import wintypes
+            hwnd = self._hwnd()
+            if not hwnd:
+                return False
+            user32 = ctypes.windll.user32
+            rect = wintypes.RECT()
+            user32.GetWindowRect(hwnd, ctypes.byref(rect))
+            w = max(self._min_w, (rect.right - rect.left) + int(delta_w))
+            h = max(self._min_h, (rect.bottom - rect.top) + int(delta_h))
+            # 限制不超过屏幕工作区
+            work = wintypes.RECT()
+            user32.SystemParametersInfoW(0x0030, 0, ctypes.byref(work), 0)  # SPI_GETWORKAREA
+            w = min(w, work.right - work.left)
+            h = min(h, work.bottom - work.top)
+            SWP_NOZORDER = 0x0004
+            SWP_NOMOVE = 0x0002
+            user32.SetWindowPos(hwnd, 0, 0, 0, w, h, SWP_NOZORDER | SWP_NOMOVE)
+        except Exception as e:
+            try:
+                qy.log_line(f"resize err: {e}")
+            except Exception:
+                pass
+        return True
+
+
+# 无边框窗口注入：自定义标题栏 + 拖动区域标记 + Ctrl+滚轮缩放 + window.close 转发
+_FRAMELESS_JS = r"""(function(){
+if(window.__qyFramelessPatched)return;
+window.__qyFramelessPatched=true;
+
+// ---- 样式 ----
+var style=document.createElement('style');
+style.textContent=[
+'.qj-titlebar{position:fixed;top:0;right:0;display:flex;z-index:999999;height:32px;opacity:0;transition:opacity .25s;}',
+'.qj-titlebar:hover{opacity:1;}',
+'.qj-tb-btn{width:42px;height:32px;border:none;background:transparent;color:#666;font-size:13px;font-family:system-ui,sans-serif;cursor:pointer;display:flex;align-items:center;justify-content:center;transition:background .15s;color:#555;}',
+'.qj-tb-btn:hover{background:rgba(0,0,0,.12);}',
+'.qj-tb-close:hover{background:#e81123;color:#fff;}',
+'.qj-drag-hint{position:fixed;top:7px;left:50%;transform:translateX(-50%);z-index:999998;font-size:11px;color:rgba(85,85,85,.5);pointer-events:none;user-select:none;white-space:nowrap;}',
+'.topbar{padding-right:132px;box-sizing:border-box;}',
+'::-webkit-scrollbar{width:6px;height:6px;}',
+'::-webkit-scrollbar-thumb{background:rgba(0,0,0,.18);border-radius:3px;}',
+'::-webkit-scrollbar-thumb:hover{background:rgba(0,0,0,.3);}',
+'::-webkit-scrollbar-track{background:transparent;}',
+'/* 迷你模式：窗口缩小时只显示此刻这一页+成品页 */',
+'@media (max-width:680px),(max-height:520px){',
+'.desk,.spiral,.skin-decor-layer,.topbar,.theme-rail,.font-rail,.sticker-rail,.files,.editor-pane,.status,.page-nav{display:none!important;}',
+'.notebook{display:flex!important;flex-direction:row!important;flex-wrap:wrap!important;height:100vh!important;width:100vw!important;padding:2px!important;margin:0!important;border:none!important;box-shadow:none!important;overflow:hidden!important;gap:2px!important;}',
+'.nowbar{flex:1 1 160px!important;padding:4px 8px!important;margin:0!important;min-height:0!important;overflow:auto!important;}',
+'.layout{flex:2 1 200px!important;display:flex!important;padding:0!important;margin:0!important;min-height:0!important;overflow:hidden!important;}',
+'.workspace{flex:1 1 auto!important;display:flex!important;flex-direction:column!important;padding:0!important;margin:0!important;min-height:0!important;}',
+'.preview-pane{flex:1 1 auto!important;overflow:auto!important;padding:2px!important;margin:0!important;min-height:0!important;}',
+'.page-stage{height:100%!important;}',
+'.qj-titlebar{height:24px!important;}',
+'.qj-tb-btn{width:32px!important;height:24px!important;font-size:11px!important;}',
+'.qj-drag-hint{display:none!important;}',
+'}'
+].join('');
+(document.head||document.documentElement).appendChild(style);
+
+// ---- 标题栏 ----
+var bar=document.createElement('div');
+bar.className='qj-titlebar';
+bar.innerHTML=
+ '<button class="qj-tb-btn qj-tb-min" title="最小化">&#8212;</button>'+
+ '<button class="qj-tb-btn qj-tb-max" title="最大化/还原">&#9633;</button>'+
+ '<button class="qj-tb-btn qj-tb-close" title="关闭">&#10005;</button>';
+
+function mount(){
+ if(!document.body){setTimeout(mount,50);return;}
+ document.body.appendChild(bar);
+ var hint=document.createElement('div');
+ hint.className='qj-drag-hint';
+ hint.textContent='拖动空白处移动 · Ctrl+滚轮缩放窗口';
+ document.body.appendChild(hint);
+ markNoDrag();
+}
+mount();
+
+bar.querySelector('.qj-tb-close').addEventListener('click',function(){
+ try{window.pywebview.api.close_window();}catch(e){}
+});
+bar.querySelector('.qj-tb-min').addEventListener('click',function(){
+ try{window.pywebview.api.minimize_window();}catch(e){}
+});
+bar.querySelector('.qj-tb-max').addEventListener('click',function(){
+ try{window.pywebview.api.toggle_maximize();}catch(e){}
+});
+// 标题栏按钮不触发拖动
+bar.querySelectorAll('.qj-tb-btn').forEach(function(b){b.setAttribute('data-no-drag','');});
+
+// ---- window.close 转发 ----
+window.close=function(){try{window.pywebview.api.close_window();}catch(e){}};
+
+// ---- 给交互元素打 data-no-drag，避免点按钮/输入时触发窗口拖动 ----
+function markNoDrag(){
+ var sels='button,input,textarea,a,select,[contenteditable],label,.list-item,.md-check,.modal,.modal-content,.stickers-palette,.progress-wrap,.skin-decor-layer,.editor-area,.md-preview,.file-tree,.toolbar,.petal,.spiral';
+ try{document.querySelectorAll(sels).forEach(function(el){
+  el.setAttribute('data-no-drag','');
+ });}catch(e){}
+}
+markNoDrag();
+try{
+ var mo=new MutationObserver(function(){markNoDrag();});
+ mo.observe(document.documentElement,{childList:true,subtree:true});
+}catch(e){}
+
+// ---- 滚轮/触控板 → 缩放窗口 ----
+// 1) 标题栏区域：滚轮直接缩放（不需要 Ctrl）
+// 2) 内容区域：Ctrl+滚轮缩放（避免与页面滚动冲突）
+function doResize(e){
+ var delta=e.deltaY<0?48:-48;
+ try{window.pywebview.api.resize_window(delta,delta);}catch(err){}
+}
+bar.addEventListener('wheel',function(e){
+ e.preventDefault();
+ doResize(e);
+},{passive:false});
+document.addEventListener('wheel',function(e){
+ if(!e.ctrlKey)return;
+ e.preventDefault();
+ doResize(e);
+},{passive:false});
+})();"""
 
 
 # ---------------------------------------------------------------------------
@@ -378,15 +550,16 @@ def main() -> None:
         url=base_url,
         width=1280,
         height=860,
-        min_size=(960, 600),
+        min_size=(320, 240),
         text_select=True,
         js_api=api,
+        frameless=True,
     )
     api._bind(window)
 
     def _on_loaded() -> None:
         try:
-            window.evaluate_js(_CLOSE_JS)
+            window.evaluate_js(_FRAMELESS_JS)
         except Exception:
             pass
 
