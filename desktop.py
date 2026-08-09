@@ -29,20 +29,37 @@ from http.server import ThreadingHTTPServer
 from pathlib import Path
 
 # 以本文件所在目录为应用根目录，确保 server.py 的 APP_ROOT 指向这里
-# PyInstaller onefile 模式：静态资源在 _MEIPASS，用户数据在 exe 所在目录
+# PyInstaller onefile 模式：静态资源在 _MEIPASS（临时目录），用户数据在 exe 所在目录
+# PyInstaller onedir  模式：静态资源在 _MEIPASS（其实是 exe\_internal），首次启动拷到 APP_DIR
 if getattr(sys, "frozen", False):
     _MEIPASS = Path(sys._MEIPASS)
     APP_DIR = Path(sys.executable).resolve().parent
-    _STATIC_FILES = [
+    import shutil
+
+    def _ensure_resource(src: Path, dst: Path) -> None:
+        """把 _MEIPASS 里的资源拷到 APP_DIR（不存在或缺失内容时）。"""
+        if not src.exists():
+            return
+        if src.is_dir():
+            if not dst.exists():
+                shutil.copytree(src, dst)
+                return
+            # 目录已存在：补其中缺失的文件/子目录，不覆盖已有内容
+            for item in src.iterdir():
+                _ensure_resource(item, dst / item.name)
+        else:
+            if not dst.exists():
+                shutil.copy2(src, dst)
+
+    # 无论 onefile 还是 onedir，_MEIPASS 中存放的都是静态资源
+    # onedir 下 _MEIPASS 就是 <exe>\_internal，资源需要落到 APP_DIR 才与 server.py 的相对路径一致
+    for _name in [
         "index.html", "styles.css", "app.js",
         "marked.min.js", "html2canvas.min.js", "jspdf.umd.min.js",
-    ]
-    import shutil
-    for _f in _STATIC_FILES:
-        _src = _MEIPASS / _f
-        _dst = APP_DIR / _f
-        if _src.exists() and not _dst.exists():
-            shutil.copy2(_src, _dst)
+        "server.py",
+        "skins", "templates", "fonts", "sounds", "document", "help",
+    ]:
+        _ensure_resource(_MEIPASS / _name, APP_DIR / _name)
 else:
     APP_DIR = Path(__file__).resolve().parent
 sys.path.insert(0, str(APP_DIR))
