@@ -36,30 +36,34 @@ if getattr(sys, "frozen", False):
     APP_DIR = Path(sys.executable).resolve().parent
     import shutil
 
-    def _ensure_resource(src: Path, dst: Path) -> None:
-        """把 _MEIPASS 里的资源拷到 APP_DIR（不存在或缺失内容时）。"""
+    def _ensure_resource(src: Path, dst: Path, *, overwrite: bool = False) -> None:
+        """把 _MEIPASS 里的资源拷到 APP_DIR。
+
+        overwrite=False：仅补缺失（用户文档/皮肤等）。
+        overwrite=True：始终用内置副本覆盖（程序代码，保证升级后生效）。
+        """
         if not src.exists():
             return
         if src.is_dir():
             if not dst.exists():
                 shutil.copytree(src, dst)
                 return
-            # 目录已存在：补其中缺失的文件/子目录，不覆盖已有内容
             for item in src.iterdir():
-                _ensure_resource(item, dst / item.name)
+                _ensure_resource(item, dst / item.name, overwrite=overwrite)
         else:
-            if not dst.exists():
+            if overwrite or not dst.exists():
+                dst.parent.mkdir(parents=True, exist_ok=True)
                 shutil.copy2(src, dst)
 
-    # 无论 onefile 还是 onedir，_MEIPASS 中存放的都是静态资源
-    # onedir 下 _MEIPASS 就是 <exe>\_internal，资源需要落到 APP_DIR 才与 server.py 的相对路径一致
+    # onedir 下 _MEIPASS 是 <exe>\_internal；程序文件覆盖拷贝，用户内容只补缺失
     for _name in [
         "index.html", "styles.css", "app.js",
         "marked.min.js", "html2canvas.min.js", "jspdf.umd.min.js",
         "server.py",
-        "skins", "templates", "fonts", "sounds", "document", "help",
     ]:
-        _ensure_resource(_MEIPASS / _name, APP_DIR / _name)
+        _ensure_resource(_MEIPASS / _name, APP_DIR / _name, overwrite=True)
+    for _name in ["skins", "templates", "fonts", "sounds", "document", "help"]:
+        _ensure_resource(_MEIPASS / _name, APP_DIR / _name, overwrite=False)
 else:
     APP_DIR = Path(__file__).resolve().parent
 sys.path.insert(0, str(APP_DIR))

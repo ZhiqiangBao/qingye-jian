@@ -640,7 +640,13 @@ def prepare_vector_print_html(html: str) -> str:
 
 
 def render_html_to_pdf(html: str) -> bytes:
-    """Render export HTML to PDF via headless Chromium (respects CSS @page size)."""
+    """Render export HTML to PDF via headless Chromium (respects CSS @page size).
+
+    使用独立 --user-data-dir，并在失败时重试 / 回退 file://，避免与桌面
+    WebView2 抢默认 Edge 配置目录导致「exit=0 却不生成 PDF」（常见于刚启动首次导出）。
+    """
+    import time
+
     browser = find_chromium_browser()
     if browser is None:
         raise RuntimeError(
@@ -650,43 +656,82 @@ def render_html_to_pdf(html: str) -> bytes:
     token = uuid.uuid4().hex
     html_name = f"__export_{token}.html"
     html_path = APP_ROOT / html_name
-    pdf_path = Path(tempfile.gettempdir()) / f"qingye_export_{token}.pdf"
-    url = f"http://{HOST}:{PORT}/{html_name}"
+    tmp_root = Path(tempfile.mkdtemp(prefix="qingye_pdf_"))
+    pdf_path = tmp_root / f"qingye_export_{token}.pdf"
+    profile_dir = tmp_root / "edge_profile"
+    profile_dir.mkdir(parents=True, exist_ok=True)
+    http_url = f"http://{HOST}:{PORT}/{html_name}"
 
     try:
         html_path.write_text(prepare_vector_print_html(html), encoding="utf-8")
-        if pdf_path.exists():
-            pdf_path.unlink()
+        # 确保本地服务能读到刚写入的文件；并给 WebView2/Edge 一点错峰时间
+        time.sleep(0.15)
 
-        common = [
-            "--disable-gpu",
-            "--disable-extensions",
-            "--no-first-run",
-            "--no-default-browser-check",
-            "--no-pdf-header-footer",
-            f"--print-to-pdf={str(pdf_path)}",
-            "--virtual-time-budget=25000",
-            url,
-        ]
+        file_url = html_path.resolve().as_uri()
+        sources = (http_url, file_url)
+        headless_flags = ("--headless=new", "--headless")
         last_err = ""
-        for headless in ("--headless=new", "--headless"):
-            cmd = [str(browser), headless, *common]
-            kwargs: dict = {
-                "capture_output": True,
-                "timeout": 180,
-            }
-            if sys.platform == "win32":
-                kwargs["creationflags"] = getattr(subprocess, "CREATE_NO_WINDOW", 0)
-            try:
-                proc = subprocess.run(cmd, **kwargs)
-            except subprocess.TimeoutExpired as exc:
-                last_err = f"超时: {exc}"
-                continue
-            if pdf_path.is_file() and pdf_path.stat().st_size > 64:
-                return pdf_path.read_bytes()
-            stderr = (proc.stderr or b"").decode("utf-8", "replace").strip()
-            stdout = (proc.stdout or b"").decode("utf-8", "replace").strip()
-            last_err = f"exit={proc.returncode}; {stderr or stdout}"[:900]
+
+        for attempt in range(3):
+            if attempt:
+                time.sleep(0.4 * attempt)
+                try:
+                    log_line(f"render_html_to_pdf retry #{attempt + 1}")
+                except Exception:
+                    pass
+
+            for source in sources:
+                for headless in headless_flags:
+                    if pdf_path.exists():
+                        try:
+                            pdf_path.unlink()
+                        except Exception:
+                            pass
+
+                    cmd = [
+                        str(browser),
+                        headless,
+                        "--disable-gpu",
+                        "--disable-extensions",
+                        "--disable-background-networking",
+                        "--disable-sync",
+                        "--no-first-run",
+                        "--no-default-browser-check",
+                        "--no-pdf-header-footer",
+                        f"--user-data-dir={str(profile_dir)}",
+                        f"--print-to-pdf={str(pdf_path.resolve())}",
+                        "--virtual-time-budget=25000",
+                        source,
+                    ]
+                    kwargs: dict = {
+                        "capture_output": True,
+                        "timeout": 180,
+                    }
+                    if sys.platform == "win32":
+                        kwargs["creationflags"] = getattr(subprocess, "CREATE_NO_WINDOW", 0)
+                    try:
+                        proc = subprocess.run(cmd, **kwargs)
+                    except subprocess.TimeoutExpired as exc:
+                        last_err = f"超时: {exc}"
+                        continue
+
+                    if pdf_path.is_file() and pdf_path.stat().st_size > 64:
+                        data = pdf_path.read_bytes()
+                        try:
+                            log_line(
+                                f"render_html_to_pdf ok: {len(data)} bytes "
+                                f"(attempt={attempt + 1}, source={'http' if source.startswith('http') else 'file'})"
+                            )
+                        except Exception:
+                            pass
+                        return data
+
+                    stderr = (proc.stderr or b"").decode("utf-8", "replace").strip()
+                    stdout = (proc.stdout or b"").decode("utf-8", "replace").strip()
+                    last_err = (
+                        f"exit={proc.returncode}; source={'http' if source.startswith('http') else 'file'}; "
+                        f"{stderr or stdout}"
+                    )[:900]
 
         raise RuntimeError(f"无头打印未生成 PDF。{last_err}")
     finally:
@@ -695,7 +740,7 @@ def render_html_to_pdf(html: str) -> bytes:
         except Exception:
             pass
         try:
-            pdf_path.unlink(missing_ok=True)
+            shutil.rmtree(tmp_root, ignore_errors=True)
         except Exception:
             pass
 
