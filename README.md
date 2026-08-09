@@ -85,6 +85,30 @@
 - **矢量（推荐）**：调用本机 Edge/Chrome 无头打印，文字清晰、文件较小，页面尺寸=当前成品页画布（不强制塞进 A4）。需已安装 Edge 或 Chrome。  
 - **高清 / 标准位图**：不依赖浏览器，清晰度与体积折中备选。
 
+### 3. 从源码运行（git clone）
+
+适合开发或不想用打包版的情况。只需本机有 **Python 3.10+**（仅用标准库，无需 `pip install`）。
+
+```bash
+git clone https://github.com/ZhiqiangBao/qingye-jian.git
+cd qingye-jian
+python server.py
+```
+
+- 默认会打开浏览器访问 `http://127.0.0.1:8765/`
+- 若不希望自动打开浏览器：`python server.py --no-open`，再手动访问上述地址
+- 笔记默认在仓库内 `document/`；也可用界面「工作区」改到别的文件夹
+- 用完请点界面顶部「退出」，结束本地服务（只关浏览器标签不会停后台）
+- 矢量 PDF 同样需要本机已安装 Edge 或 Chrome
+
+打包桌面版（可选）：
+
+```bash
+python packaging/build_release.py
+```
+
+产物在 `release/qingye-jian/`。
+
 ---
 
 ## 一个很有用的小技巧
