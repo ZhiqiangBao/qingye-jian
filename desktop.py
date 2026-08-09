@@ -811,8 +811,11 @@ def main() -> None:
     window.events.closed += _on_closed
 
     # webview.start() 占用主线程直到所有窗口关闭
-    # debug=True 开启 DevTools（F12），方便诊断导出问题
-    webview.start(debug=True)
+    # 正式打包关闭 DevTools；开发时设环境变量 QINGYE_DEBUG=1 或直接跑源码可开
+    _debug = (not getattr(sys, "frozen", False)) or (
+        os.environ.get("QINGYE_DEBUG", "").strip() in ("1", "true", "TRUE", "yes")
+    )
+    webview.start(debug=_debug)
 
     # 保险：窗口关闭后再次确保清理
     _shutdown_cleanup(httpd, api)
