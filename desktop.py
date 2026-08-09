@@ -65,6 +65,93 @@ else:
 sys.path.insert(0, str(APP_DIR))
 
 import server as qy  # noqa: E402  复用现有 server.py
+
+
+def _clear_mark_of_the_web(*roots: Path) -> int:
+    """清除 Windows「来自互联网」区域标记（Zone.Identifier ADS）。
+
+    从 GitHub / 浏览器下载的 zip 解压后，.dll 会带 Zone.Identifier。
+    .NET 默认拒绝加载被标记的程序集，表现为：
+      Failed to resolve Python.Runtime.Loader.Initialize from ...\\Python.Runtime.dll
+    启动时主动删除该 ADS，用户无需右键「解除锁定」。
+    """
+    if os.name != "nt":
+        return 0
+    cleared = 0
+    try:
+        import ctypes
+
+        delete_file_w = ctypes.windll.kernel32.DeleteFileW
+    except Exception:
+        return 0
+
+    suffixes = {".dll", ".exe", ".pyd"}
+    for root in roots:
+        if not root or not root.exists():
+            continue
+        try:
+            paths = [root] if root.is_file() else list(root.rglob("*"))
+        except Exception:
+            continue
+        for path in paths:
+            if not path.is_file() or path.suffix.lower() not in suffixes:
+                continue
+            try:
+                if delete_file_w(str(path) + ":Zone.Identifier"):
+                    cleared += 1
+            except Exception:
+                pass
+    return cleared
+
+
+# ---------------------------------------------------------------------------
+# 打包模式：先清 MotW，再加载 pythonnet（系统自带 .NET Framework / netfx）。
+# 根因不是缺 .NET 8，而是下载解压后的 Zone.Identifier 阻止加载 Python.Runtime.dll。
+# ---------------------------------------------------------------------------
+if getattr(sys, "frozen", False):
+    import ctypes
+
+    _meipass = Path(sys._MEIPASS)
+    _pynet_runtime = _meipass / "pythonnet" / "runtime"
+    _cleared = _clear_mark_of_the_web(APP_DIR, _meipass, _pynet_runtime)
+    try:
+        qy.log_line(f"Cleared Mark-of-the-Web streams: {_cleared}")
+    except Exception:
+        pass
+
+    if _pynet_runtime.exists():
+        os.environ["PATH"] = str(_pynet_runtime) + os.pathsep + os.environ.get("PATH", "")
+        try:
+            os.add_dll_directory(str(_pynet_runtime))
+        except Exception:
+            pass
+
+    # 明确走 netfx（Windows 自带），避免误用需单独安装的 coreclr
+    os.environ.pop("PYTHONNET_CORECLR_RUNTIME_CONFIG", None)
+    os.environ["PYTHONNET_RUNTIME"] = "netfx"
+
+    try:
+        import pythonnet
+
+        pythonnet.set_runtime_from_env()
+        pythonnet.load()
+    except Exception as _e:
+        _msg = str(_e)
+        try:
+            qy.log_line(f"pythonnet load failed: {_msg}")
+        except Exception:
+            pass
+        ctypes.windll.user32.MessageBoxW(
+            0,
+            "青叶笺启动失败：无法加载桌面窗口组件（pythonnet）。\n\n"
+            "若刚从网上下载解压，请再试一次；仍失败可把本目录下的\n"
+            "qingye-jian.log 发给开发者。\n\n"
+            f"错误信息：{_msg}",
+            "青叶笺 — 启动失败",
+            0x10,  # MB_ICONERROR
+        )
+        sys.exit(1)
+
 import webview  # noqa: E402
 
 # 打包模式下让 server.py 的 APP_ROOT 指向 exe 所在目录（含用户数据）
